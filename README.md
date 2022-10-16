@@ -90,7 +90,7 @@ Grid是最高的线程等级，包含了多个Cluster。
  - shared memory，CTA中线程共享；
  - local memory，线程独占；
 
-# 第3章 PTX Machine Modell
+# 第3章 PTX Machine Model
 ## 3.1 A Set of SIMT Multiprocessors 
 ## 3.2 Independent Thread Scheduling
 ## 3.3 On-chip Shared Memory
