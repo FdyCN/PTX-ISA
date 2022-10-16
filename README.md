@@ -83,8 +83,7 @@ Grid是最高的线程等级，包含了多个Cluster。
 
 主要分为以下几种：
  - global memory，可读可写，线程共享；
- - constant memory，只读，线程共享；
- - param memory
+ - constant memory，只读，cached，线程共享；
  - texture，只读，cached；
  - surface，可读可写，cached；
  - shared memory，CTA中线程共享；
@@ -92,8 +91,23 @@ Grid是最高的线程等级，包含了多个Cluster。
 
 # 第3章 PTX Machine Model
 ## 3.1 A Set of SIMT Multiprocessors 
+GPU硬件模型如下图所示：
+![Figure4](./images/fig4.png)
 ## 3.2 Independent Thread Scheduling
+在`Volta`架构之前，一个warp内的32个线程因为共用一个程序计数器，通过active mask来区别active thread。
+
+但是从`Volta`架构开始，支持了warp内的线程独立调度，每个线程都有自己独立的程序计数器，也就是当出现一个warp内的线程分化的时候，允许不同的线程做不同的事情，不再阻塞。
+
+开发者在编写`Volta`及以上架构的PTX代码时，需要特别留意因为独立线程调度操作引起的**向下兼容性问题**。
 ## 3.3 On-chip Shared Memory
+根据Figure4中的信息显示，每个Multiprocessor可以利用的片上内存主要分为以下四种：
+
+1. 每个processor都有一组32-bit的本地寄存器；
+2. 每个processor共享的`shared memory`，其拥有并行数据缓存；
+3. 每个processor可通过共享的只读cache，加速读取设备的指定常量存储区域`constant memory`，内存有限；
+4. 每个processor可通过共享的只读cache，加速读取设备指定的存储区域`texutre`，支持多种寻址模式和数据滤波器；
+
+需要注意的是，`local memory`和`global memory`没有专用cache加速。 
 
 # 第4章 Syntax
 ## 4.1 Source Format
