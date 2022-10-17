@@ -110,11 +110,53 @@ GPU硬件模型如下图所示：
 需要注意的是，`local memory`和`global memory`没有专用cache加速。 
 
 # 第4章 Syntax
+PTX源程序模块带有汇编语法风格的指令操作符和操作数。通过ptxas后端编译优化器对PTX源模块进行优化、编译并生成对应的二进制对象文件。
+
 ## 4.1 Source Format
+源模块是以ASCII文本形式，以`\n`进行换行。
+
+所有空格将被忽略，除非在语言中被用于分格标记。
+
+接受C风格的预处理标记，通过`#`标记，如：`#include, #define, #if, #ifdef, #else, #endif, #line, #file`
+
+PTX区分大小写，关键字用小写。
+
+每个PTX模块必须以指定PTX语言版本的`.version`指令开始，
+接着是一个`.target`指令，指定假设的目标体系结构。
 ## 4.2 Comments
+PTX的注释服从C\C++风格，使用/* 注释内容 */或`//`均可。
+
 ## 4.3 Statements
-### 4.3.1 Directive Statements·
+PTX中的陈述语句既包含预处理(directive)也包含指令(instruction)，以可选的指令标记开头并以分号结尾。
+
+例子：
+```
+        .reg .b32 r1, r2;
+        .global .f32 array[N];
+
+start:  mov.b32 r1, %tid.x;
+        shl.b32 r1, r1, 2; // shift thread id by 2 bits
+        ld.global.b32 r2, array[r1]; // thread[tid] gets array[tid]
+        add.f32 r2, r2, 0.5; // add 1/2
+```
+【PS】文档原话：“A PTX statement is either a directive or an instruction”。这里directive和instruction的区别理解了半天，最后可以理解为，directive近似预处理的东西或者说特殊字符处理，起到编译器指示作用。而instruction是指令，可以理解为发生在机器上的“动词”。
+### 4.3.1 Directive Statements
+PTX中支持的编译器指示如下表所示：
+
+![Table1](./images/table1.png)
+
+【PS】可以看到如`.reg`、`pragma`等常用的编译指示关键字。
 ### 4.3.2 Instruction Statements
+指令由一个指令操作码和由逗号分隔的零个或多个操作数组成，并以分号结束。操作数可以是寄存器变量，常量表达式、地址表达式或指令标签名称。
+
+指令有一个可选的判断条件作控制流的跳转。判断条件在可选的指令标记后面，在操作码前面，并被写成`@p`，其中`p`是一个条件寄存器。判断条件可以取非，写成`@!p`。
+
+指令标记之后的字段，首先是目标操作数，后续是源操作数。
+
+指令关键字如下表所示：
+
+![Table2](./images/table2.png)
+
 ## 4.4 Identifiers
 ## 4.5 Constants
 ### 4.5.1 Integer Constants
