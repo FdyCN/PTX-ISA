@@ -158,11 +158,57 @@ PTX中支持的编译器指示如下表所示：
 ![Table2](./images/table2.png)
 
 ## 4.4 Identifiers
+用户定义的标识符，服从C++的规则，字母或者下划线开头，或者以`$`开头。
+
+PTX没有指定标识符的最大长度，并表示所有实现至少支持1024个字符。
+
+PTX支持以`%`为前缀的变量，用于避免命名冲突，如：用户定义的变量和编译器生成的变量名。
+
+PTX以`%`为前缀预定义了一个常量和一小部分特殊寄存器，如下表所示：
+
+![Table3](./images/table3.png)
+
+其中`WARP_SZ`表明了目标设备的warp大小，默认值都是32。
 ## 4.5 Constants
+PTX支持整型和浮点常量和常量表达式。这些常数可用于数据初始化和作为指令的操作数。对于整型、浮点和位大小类型检查规则是相同的。
+
+对于判断类型的数据和指令，允许使用整型常量，即`0`为`False`和`!0`为`True`。
 ### 4.5.1 Integer Constants
+整型常量的大小为64位，有符号或无符号，即每个整数常量的类型为`.s64`或`.u64`。
+
+而在指令或数据初始化中使用时，每个整整型常量会根据使用时的数据或指令类型转换为适当的大小。
+
+
+整型常量可以写作十六进制、十进制、八进制、二进制，写法同C语言一直，最后加`U`表示unsigned:
+
+```
+十六进制：    0[xX]{hexdigit}+(U)
+十进制：      {nonzero-digit}{digit}+(U)
+八进制：      0{octal digit}+(U)
+二进制：      0[bB]{bit}+(U)
+```
 ### 4.5.2 Floating-Point Constants
+浮点常量表示为64位双精度值，所有浮点常量表达式都使用64位双精度算术求值。
+
+需要注意的是如果用十六进制表示，是表示32位单精度浮点。并且可能不会被用在常量表达式中。
+
+浮点数的值的第一种表示，可以用一个可选的小数点和带符号的指数进行表达(应该是指：1.34e-2)。但和C\C++不同的是，在PTX里面不能通过后缀来区分浮点数的的类型，比如：1.0f。
+
+浮点数的值的第二种表示，可以使用十六进制进行表示，如下：
+
+```
+0[fF]{hexdigit}{8} // single-precision floating point
+0[dD]{hexdigit}{16} // double-precision floating point
+```
+
+举个例子：
+```
+mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
+```
 ### 4.5.3 Predicate Constants
+整型常量也可以作为判断数据，`0`表示`False`，`!0`表示`True`。
 ### 4.5.4 Constant Expressions
+
 ### 4.5.5 Integer Constant Expression Evaluation
 ### 4.5.6  Summary of Constant Expression Evaluation
 Rules
