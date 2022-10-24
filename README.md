@@ -297,7 +297,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 #### 5.1.3.1.  Banked Constant State Space (deprecated)
 被弃用的就不赘述了。
 
-#### 5.1.4.  Global State Space
+### 5.1.4.  Global State Space
 `.global`全局状态空间是能够被kernel中所有线程都访问到的内存空间，使用`ld.global`、`st.global`和`atom.global`指令访问全局内存。
 
 没有显示初始化的全局变量默认初始化为`0`。
