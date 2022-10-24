@@ -257,10 +257,10 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 ![Table5](./images/table5.png)
 
-## 第5章 State Spaces, Types, and Variables
+# 第5章 State Spaces, Types, and Variables
 虽然特殊的资源在不同架构的GPU上可能是不同的，但资源种类是通用的，这些资源通过状态空间和数据类型在PTX中被抽象出来。
 
-### 5.1 State Spaces
+## 5.1 State Spaces
 状态空间是具有特定特征的存储区域。所有变量都驻留在某个状态空间中。状态空间的特征包括其大小、可寻址性、访问速度、访问权限和线程之间的共享级别。
 
 不同的状态空间如下表所示：
@@ -271,7 +271,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 ![Table7](./images/table7.png)
 
-#### 5.1.1 Register State Space
+### 5.1.1 Register State Space
 `.reg`寄存器读写速度很快，但是数量有限制，并且不同架构的寄存器数量不一样。当寄存器使用超标时，会溢出到内存中，影响读写速度。
 
 寄存器可以是有类型的，也可以是无类型的，但是寄存器大小是被严格限制的，除了1-bit的判断符(bool)寄存器以外，还有宽度为8-bit\16-bit\32-bit\64-bit的标量寄存器，以及16-bit\32-bit\64-bit\128-bit的矢量寄存器。
@@ -282,10 +282,10 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 寄存器对于多字的读写可能会需要做边界对齐。
 
-#### 5.1.2 Special Register State Space
+### 5.1.2 Special Register State Space
 `.sreg`特殊寄存器是预定义的平台特殊寄存器，如grid、cluster等相关参数，所有的特殊寄存器都是预定义的。
 
-#### 5.1.3 Constant State Space
+### 5.1.3 Constant State Space
 `.const`常量状态空间是由host端初始化的只读内存，通常使用`ld.const`进行访问，目前常量内存的限制为64KB。
 
 另外还有一个640KB的常量内存，被划分为10个64KB的区域，驱动程序可以在这些区域上进行初始化数据分配，并通过指针的形式作为kernel参数传入。
@@ -294,7 +294,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 静态大小的常量变量有一个可选的变量初始化器。默认情况下，没有显式初始化式的常数变量被初始化为零。驱动程序分配的常量缓冲区由host初始化，并将指向这块常量内存的指针作为kernel参数传入。
 
-##### 5.1.3.1.  Banked Constant State Space (deprecated)
+#### 5.1.3.1.  Banked Constant State Space (deprecated)
 被弃用的就不赘述了。
 
 #### 5.1.4.  Global State Space
@@ -302,7 +302,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 没有显示初始化的全局变量默认初始化为`0`。
 
-#### 5.1.5.  Local State Space
+### 5.1.5.  Local State Space
 `.local`本地状态空间是每个线程私有的内存空间。通常是带缓存的标准内存。其有大小限制，因为必须按每一个线程进行分配。
 
 使用`ld.local`、`st.local`进行本地变量的访问。
@@ -313,8 +313,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 在PTX 3.0及一下，module-scope `.local`将默认被禁用。
 
-#### 5.1.6.  Parameter State Space
-#### 
+### 5.1.6.  Parameter State Space 
 
 
 
