@@ -314,6 +314,70 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 在PTX 3.0及一下，module-scope `.local`将默认被禁用。
 
 ### 5.1.6.  Parameter State Space 
+`.param`参数状态空间主要用于以下情况：
+
+1. 作为从host传入kernel的输入参数；
+2. 在kernel执行过程中，为调用的device函数声明正式的输入和返回参数；
+3. 通常可用于声明局部作用域的字节矩阵，主要通过值传递大型的结构体。
+
+kernel函数参数与device函数参数是不同的，一个是内存的访问与共享权限不同(read-only对比read-write，per-kernel对比per-thread)。
+
+PTX 1.x版本只支持kernel函数参数，从2.0开始`.param`才支持device函数参数（需要`sm_20`及以上架构）。
+
+【PS】PTX代码不应该对`.param`空间变量的相对位置或顺序做任何假设。(个人理解应该保持唯一的相对顺序)
+
+#### 5.1.6.1.  Kernel Function Parameters
+每个内核函数定义都包含一个可选的参数列表。这些参数是在`.param`状态空间中声明的可寻址只读变量。通过使用`ld.param`指令访问内核参数值。内核参数变量被grid内的所有线程共享。
+
+内核参数的地址可以使用`mov`指令移动到寄存器中。结果地址在`.param`状态空间中，可以使用`ld.param`指令访问。
+
+两个例子：
+```
+.entry foo ( .param .b32 N, .param .align 8 .b8 buffer[64] )
+{
+    .reg .u32 %n;
+    .reg .f64 %d;
+    ld.param.u32 %n, [N];
+    ld.param.f64 %d, [buffer];
+    ...
+```
+
+```
+.entry bar ( .param .b32 len )
+{
+    .reg .u32 %ptr, %n;
+    mov.u32 %ptr, len; // 寄存器%ptr只想len变量的地址
+    ld.param.u32 %n, [%ptr]; //寄存器%n读取%ptr指针指向的值
+```
+【PS】:现阶段的应用中，不循序创建一个指向由kernel参数传入的常量内存的通用指针。(没试过，不太确定`cvta.const`指令是什么)
+
+#### 5.1.6.2.  Kernel Function Parameter Attributes
+kernel函数参数可以用可选的`.ptr`属性声明，可用来指示参数是指向内存的指针，也可表明指针所指向内存的状态空间和对齐方式。
+
+`.ptr`语法：
+```
+.param .type .ptr .space .align N varname
+.param .type .ptr .align N varname
+
+.space = { .const, .global, .local, .shared };
+```
+
+其中`.space`和`.align`是可选的属性，`.space`缺失则默认是`.const, .global, .local, .shared`中的一种（基本属于未定义，所以一般还是不建议省略），`.align`缺失则默认按照4 byte对齐。
+
+【PS】:`.ptr`、`.space`和`.align`之间不能有空格。
+
+举个例子：
+```
+.entry foo ( .param .u32 param1,
+            .param .u32 .ptr.global.align 16 param2,
+            .param .u32 .ptr.const.align 8 param3,
+            .param .u32 .ptr.align 16 param4 // generic address
+            // pointer
+) { .. }
+```
+
+
+
 
 
 
