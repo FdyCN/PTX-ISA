@@ -497,6 +497,83 @@ PTX中支持的基本浮点类型具有隐式的位表示，表示用于存储�
 替代数据格式不能用作基本类型。它们被某些指令支持为源格式或目标格式。
 
 ## 5.3.  Texture Sampler and Surface Types
+PTX中有一些内建的**不透明**类型来定义`texture`、`sampler`、`surface descriptor`变量。
+
+这些类型的命名字段类似于结构体，但所有的信息如：布局、字段顺序、基址和总体大小都隐藏在PTX程序中，因此称为**不透明**。
+
+这些不透明类型的使用有如下限制：
+
+1. 变量定义在全局(module)作用域和内核参数列表中；
+2. module-scope变量的静态初始化使用逗号隔开静态赋值表达式；
+3. texture\sampler\surface的引用通过texture\surface的load\save指令完成`tex,suld,sust,sured`。
+4. 通过查询指令检索指定成员的值；
+5. 创建指向不透明变量的指针可以使用`mov`指令，如：`mov.u64 reg, opaque_var`。产生的指针可以从内存中读写，也可以通过参数传递给函数，还可以被texture\surface的读写查询指令所引用。
+6. **不透明变量不能出现在初始化中，如：初始化一个指针指向不透明变量。**
+
+【PS】:从PTX ISA 3.1版本开始支持使用指向不透明变量的指针间接访问texture\surface，需要目标架构`sm_20`及以上。
+
+上述的三种内建的不透明类型是`.texref`、`.samplerref`和`.surfref`。
+
+使用texture + sampler的时候，由两种操作模式可以选择:
+1. 一种是`unified mode`，这种模式下，texture和sampler都用过单个`.texref`进行访问。
+2. 另一种模式是`independent mode`，这种模式下，texture和sampler都有各自的句柄，允许他们分开定义再合并使用，在这种模式下`.texref`中关于sampler的定义将被忽略，因为会在`.samplerref`被定义。
+
+下面两张表列出了在两种模式下面各种成员，这些成员及其值有具体的获取方法，在纹理`HW`类中定义，以及通过API查询。
+
+- Unified Mode
+![Table9](./images/table9.png)
+
+- Independent Mode
+![Table10](./images/table10.png)
+
+### 5.3.1.  Texture and Surface Properties
+上表中的`width`、`height`和`depth`表示texture\surface在每个维度的元素个数(更准确的说可以理解为像素pixel)。
+
+其中每一个像素的属性可以由`channel_data_type`和`channel_order`来表示。、
+
+OpenCL中的定义是被PTX支持的，所以可以参考OpenCL的定义如下：
+
+![Table11](./images/table11.png)
+![Table12](./images/table12.png)
+
+### 5.3.2.  Sampler Properties
+关于sampler的属性，代表的意义如下：
+
+- `normalized_coords`：表示坐标是否归一化为[0.0, 1.0f]。如果没有被显式设置，则会在runtime阶段根据源码进行设置(也就是说还有可能默认被设为开启？？没试过，通常是默认非归一化的)
+- `filter_mode`：表示如何基于坐标值计算texture读取的像素。
+- ` addr_mode_{0,1,2}`： 定义了每个维度的寻址模式，该模式决定了每个维度如何处理out-of-range的坐标。
+- `force_unnormalized_coords`: **在Independant Mode**下独有的属性，字面意思很好理解，会去将texture中的`normalized_coords`强行改写为`unnormalized_coords`当其被设置为`True`时，如果是`False`，那么就默认使用texture中的设置。
+  - 【PS】:该属性被用在编译OpenCL to PTX的时候。
+
+我们在声明这些不透明类型的时候，如果位于module-scope中，则需要使用`.global`状态空间；而如果位于kernel参数列表中，则需要使用`.param`状态空间。
+
+举个例子：
+```
+.global .texref my_texture_name;
+.global .samplerref my_sampler_name;
+.global .surfref my_surface_name;
+```
+
+在`,.global`状态空间中，可以使用静态列表进行初始化，如：
+```
+.global .texref tex1;
+.global .samplerref tsamp1 = { addr_mode_0 = clamp_to_border,
+                               filter_mode = nearest
+                             };
+```
+
+### 5.3.3.  Channel Data Type and Channel Order Fields
+见5.3.1的表
+
+## 5.4.  Variables
+
+
+
+
+
+
+
+
 
 
 
