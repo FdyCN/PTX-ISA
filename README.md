@@ -7,7 +7,7 @@ CUDA PTX-ISA Document 中文翻译版
 
 记录一下学习过程，部分内容会经过提炼加上一些自己的理解。
 
-# 第1章 Intruduction
+# Chapter 1. Intruduction
 ## 1.1 Scalable Data-Parallel Computing using GPUS
 PTX定义了一套抽象设备层面的ISA用于通用的并行编程指令。让开发人员可以忽略掉具体的目标设备指令集差异，进行通用的开发。
 
@@ -50,7 +50,7 @@ __`7.8`版本有如下新特性__：
 21. 新增了cluster维度相关指令，包括：`.reqnctapercluster`, `.explicitcluster`,
 `.maxclusterrank`。
 
-# 第2章 Programming Model
+# Chapter 2. Programming Model
 ## 2.1 A Highly Multithreaded Coprocessor
 GPU是可以并行执行打量线程的设备，可协助CPU分担大数据量的计算工作。
 ## 2.2 Thread Hierarchy
@@ -89,7 +89,7 @@ Grid是最高的线程等级，包含了多个Cluster。
  - shared memory，CTA中线程共享；
  - local memory，线程独占；
 
-# 第3章 PTX Machine Model
+# Chapter 3. PTX Machine Model
 ## 3.1 A Set of SIMT Multiprocessors 
 GPU硬件模型如下图所示：
 ![Figure4](./images/fig4.png)
@@ -111,7 +111,7 @@ GPU硬件模型如下图所示：
 
 需要注意的是，`local memory`和`global memory`没有专用cache加速。 
 
-# 第4章 Syntax
+# Chapter 4. Syntax
 PTX源程序模块带有汇编语法风格的指令操作符和操作数。通过ptxas后端编译优化器对PTX源模块进行优化、编译并生成对应的二进制对象文件。
 
 ## 4.1 Source Format
@@ -257,7 +257,7 @@ mov.f32 $f3, 0F3f800000; // 1.0, 表示：$f3 = 1.0;
 
 ![Table5](./images/table5.png)
 
-# 第5章 State Spaces, Types, and Variables
+# Chapter 5. State Spaces, Types, and Variables
 虽然特殊的资源在不同架构的GPU上可能是不同的，但资源种类是通用的，这些资源通过状态空间和数据类型在PTX中被抽象出来。
 
 ## 5.1 State Spaces
@@ -719,7 +719,7 @@ TODO: 这部分还有关于device function name出现在初始化式里面的情
 .global .attribute(.managed) .u64 x;
 ```
 
-# 第6章 Instruction Operands
+# Chapter 6. Instruction Operands
 
 ## 6.1 Operand Type Information
 
@@ -846,6 +846,41 @@ ALU的操作指令必须声明在`.reg`寄存器空间，并且大多数情况�
 从PTX ISA 3.1版本开始，`mov`指令可以用来获取kernel的地址，然后传递给系统调用，进行GPU kernel初始化。
 
 ## 6.5.  Type Conversion
+在算数、逻辑、移动等指令中的所有操作数都必须是相同的数据类型和大小。如果操作数数据类型或大小不相同，那么必须在进行才做之间做数据转换。
+
+### 6.5.1.  Scalar Conversions
+下表中表示了各个数据类型之间相互转换会有的操作，如：u16转换到u32是高位直接补0。
+
+其中如果转换到浮点数的时候，源操作数的大小超过了浮点数能表示的最大值，那么会直接被表示为浮点数的最大值。（如IEEE`f32`和`f64`最大值表示为Inf，而`fp16`约为131,000？手册中是`~13100`）
+
+![Table13](./images/table13.png)
+
+### 6.5.2.  Rounding Modifiers
+在转换指令中可能会需要表明**舍入修饰符(rounding modifier)**，其中整型和浮点型都分别有四种和五种rounding modifier。
+
+浮点型如下表所示：
+![Table14](./images/table14.png)
+
+PS: "LSB" -- "least significant bit(最低有效位)"。
+"rounds to nearest even"应该是，如：`1.5`这种距离1和2距离相近的情况下，我们会舍入到偶数2。
+
+整型如下表所示：
+![Table15](./images/table15.png)
+
+## 6.6.  Operand Costs
+不同的状态空间中的操作指令会有着不同的速度，比如寄存器的操作指令是最快的，而全局空间的操作指令是最慢的。
+
+有许多让发可以隐藏指令的操作延迟，如：
+1. 多线程执行，这样会硬件在某一线程执行完内存操作之后自动切换到另一个线程，调度隐藏延迟；
+2. 尽可能早的分配读取指令，因为在后续的指令使用到读取的结果之前，后续指令并不会被阻塞。
+3. ....
+
+下表大致估计了各个状态空间指令的时钟周期：
+![Table16](./images/table16.png)
+
+# Chapter 7. Abstracting the ABI
+
+
 
 
 
