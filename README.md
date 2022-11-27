@@ -999,6 +999,129 @@ PS: 上述两个指令是PTX ISA 7.3预览版所加入的特性，后续可能�
 
 
 # Chapter 8. Memory Consistency Model
+在多线程执行的过程中，因为不同的两个线程，他们各自的两个操作可能并没有按照顺序进行。在这种时候可能就会导致内存上的一些问题。内存一致性模型则可以更好的约束这些潜在的问题。
+
+## 8.1.  Scope and applicability of the model
+在此模型下指定的约束适用于任何PTX ISA版本，运行在`sm_70`或更高的架构上。
+
+内存一致性模型，不适用与`texture`（包括`ld.global.nc`）和`surface`内存的访问。
+
+### 8.1.1.  Limitations on atomicity at system scope
+当与主机CPU通信时，具有系统作用域的64位强操作可能不会在某些系统上原子地执行。
+
+原子操作的保证性在这里不多展开。CUDA Programming Guide里面有详细说明
+
+## 8.2.  Memory operations
+PTX内存模型中的基本存储单元是1个字节。PTX程序可用的每个状态空间都是内存中连续字节的序列。并且每个字节的地址都是唯一的。
+
+内存一致性模型规范使用术语“address”或“memory address”来表示虚拟地址，使用术语“memory location”来表示物理内存位置。
+
+### 8.2.1.  Overlap
+当两端内存段存在交集是，称之为Overlap，当两个内存指令指定的虚拟地址相同但物理内存存在交集时，二者也是Overlap的。
+
+### 8.2.2.  Aliases
+如果两个不同的虚拟地址映射到相同的物理内存位置，则称它们为别名。
+
+### 8.2.3.  Vector Data-types
+内存一致性模型将在物理地址上执行的操作与**标量数据**类型联系起来，这些数据类型的最大大小和对齐方式为64-bit。
+
+向量数据类型的内存操作被建模为一组标量数据的等效内存操作，以未知的顺序在向量中的元素上进行。(我理解如果时v4.u8这种加法，位置顺序是指具体先计算那哪一个u8是未知的，通常我们也并不关心)
+
+### 8.2.4.  Packed Data-types
+Packed数据如`.fp16x2`，访问的是物理内存上连续的两个`fp16`数据。其内存操作指令也是等效为一组标量的指令，以未知的顺序在packed data上进行。
+
+### 8.2.5.  Initialization
+内存值的初始化，如果没有任何显式的赋值操作，那么字节会被初始化为未知但不变的值。（随机值但一定是所有字节都是一样的随机值）
+
+## 8.3.  State spaces
+在内存一致性模型中定义的关系独立于状态空间。
+
+例如，PTX指令`ld.relax .shared.sys`的同步效果与`ld.relax .shared.cluster`的同步效果相同。因为非同一cluster之内的线程不能执行访问同一shared内存位置的操作。
+
+## 8.4.  Operation types
+操作类型大致可以分为下表所示的一些类：
+
+![Table17](./images/table17.png)
+
+## 8.5.  Scope
+每一条**强操作**都必须表明作用域，这些作用域有：
+
+![Table18](./images/table18.png)
+
+需要注意的是`warp`并不是作用域，`CTA`则是内存一致性模型中的拥有最小线程集合的作用域。
+
+
+## 8.6.  Proxies
+内存代理是应用于内存访问方法的抽象标签。当两个内存操作使用不同的内存访问方法时，它们被称为不同的代理。
+
+在Table17中定义的内存操作使用通用的内存访问方法，即通用代理。其他操作，如`texture`和`surfasce`都使用不同的内存访问方法，也不同于通用方法。
+
+需要使用`proxy fence`来同步不同代理之间的内存操作。尽管虚拟别名使用通用的内存访问方法，但由于使用不同的虚拟地址就像使用不同的代理一样，因此它们需要一个`proxy fence`来维护内存顺序。
+
+## 8.7.  Morally strong operations
+满足如下所有条件的两条操作，我们说他们互为**morally strong operations**:
+
+1. 操作按程序顺序相关(即，它们都由相同的线程执行)，或者每个操作都是强操作，并指定包含线程的作用域执行另一个操作。
+2. 两个操作都通过同一个代理执行。
+3. 如果两者都是内存操作，那么它们完全重叠(overlap completely)。
+
+### 8.7.1.  Conflict and Data-races
+当两个内存重叠的操作至少有一个是写的时候，我们称之为`conflict`。
+
+如果两个存在`conflict`的内存操作在因果顺序上不相关，且它们不是`morally strong`，则它们被称为`data-races`。
+
+### 8.7.2.  Limitations on Mixed-size Data-races
+在完全overlap情况下出现的`data-race`称之为`uniform-size data-race`，在不完全overlap的情况下称之为`mixed-size data-race`。
+
+如果PTX程序包含一个或多个`mixed-size data-race`，则内存一致性模型中的公理不适用。但对于`uniform-size data-race`是适用的。
+
+注意原子操作能够保证在任何情况下都可以保证执行无误。
+
+## 8.8.  Release and Acquire Patterns
+一些指令序列会产生参与内存同步的模式。`release`使得来自当前线程t的先前操作对来自其他线程的某些操作可见。`acquire`模式使来自其他线程的一些操作对当前线程t的后续操作可见。
+
+在内存位置M上的`release`包含如下一些操作：
+1. 在M上的`release`操作：
+```
+st.release [M]; 
+atom.acq_rel [M];
+```
+2. 一个`release`操作之后紧跟着一个`strong write`(见上文Table17):
+```
+st.release [M]; 
+st.relaxed [M];
+```
+3. 一个内存栅栏操作之后紧跟着一个`strong write`操作：
+```
+fence; 
+st.relaxed [M];
+```
+
+任何由`release`模式建立的内存同步只影响在该模式中按程序顺序发生的**第一个指令操作**之前的操作。
+
+在内存位置M上的`acquire`包含如下一些操作：
+1. 在M上的`acquire`操作：
+```
+ld.acquire [M];
+atom.acq_rel [M];
+```
+2. 一个`acquire`操作之后紧跟着一个`strong write`(见上文Table17):
+```
+ld.relaxed [M]; 
+ld.acquire [M];
+```
+3. 一个`strong read`指令后紧跟这内存栅栏操作：
+```
+ld.relaxed [M]; 
+fence;
+```
+由`acquire`模式建立的任何内存同步，只影响该模式中按程序顺序发生的**最后一条指令操作**之后的操作。
+
+## 8.9.  Ordering of memory operations
+
+
+
+
 
 
 
