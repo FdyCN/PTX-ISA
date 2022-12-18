@@ -1118,6 +1118,89 @@ fence;
 由`acquire`模式建立的任何内存同步，只影响该模式中按程序顺序发生的**最后一条指令操作**之后的操作。
 
 ## 8.9.  Ordering of memory operations
+内存一致性模型定义了通信顺序、因果顺序、程序顺序之间不允许存在的矛盾。
+
+### 8.9.1.  Program Order
+Program order是一个传递关系，在线程执行的操作上形成一个总顺序，但不关联来自不同线程的操作。
+
+### 8.9.2.  Observation Order
+Observation order通过可选的原子read-modify-write操作序列将写操作W与读操作R联系起来。
+
+当出现如下两种情况之一是，Observation order中的写操作W会**先于**读操作R：
+1. R和W是`morally strong`并且R 读取由W写入的值；
+2. 对于一些原子操作Z，在Observation order中W先于Z并且Z先于R。
+
+### 8.9.3.  Fence-SC Order
+Fence-SC order是一个非循环的部分顺序，在运行时确定，与每一对`morally strong fence.sc`操作相关。
+
+### 8.9.4.  Memory synchronization
+同步操作实在运行时不同的线程之间进行的操作。这种同步操作在线程之间建立了因果关系(Causality order)
+
+不同线程之间的同步操作包括如下几种：
+1. 一个`fence.sc`操作X与一个`fence.sc`操作Y同步，且在Fence-SC order中X位于Y之前；
+2. `bar{.cta}.sync`或`bar{.cta}.red`或`bar{.cta}.arrive`与`bar{.cta}.red`或`bar{.cta}.sync`在同一个barrier上进行同步；
+3. 一个`barrier.cluster.arrive`与`barrier.cluster.wait`进行同步；
+4. release模式的X与acquire模式的Y同步，如果X中的写操作按照Observation Order先于Y中的读操作，并且X中的第一个操作和Y中的最后一个操作是`morally strong`。
+
+一些同步操作也可以通过相关的CUDA API来实现，如：cuda stream的同步等。
+
+### 8.9.5.  Causality Order
+不想翻译这一部分了，后面如果有新体会再翻译吧，因果关系可以直接按照字面理解，就是两条操作之间如果存在依赖，那就存在因果关系。
+
+### 8.9.6.  Coherence Order
+存在一种部分传递顺序，将重叠写操作联系起来，在运行时确定，称为一致性顺序(Coherence Order)。
+
+当两个写操作是`morally strong`或者他们存在因果关系时，他们是满足一致性顺序的。
+
+但当两个写操作存在`data-race`的时候，他们不满足一致性顺序。
+
+### 8.9.7.  Communication Order
+通信顺序是在运行时确定的**非传递顺序**，它将写操作与其他overlapping的内存操作联系起来。
+
+## 8.10.  Axioms
+
+### 8.10.1.  Coherence
+"If a write W precedes an overlapping write W’ in causality order, then W must precede W’ in
+coherence order." (公理就不用翻译了)
+
+### 8.10.2.  Fence-SC
+"Fence-SC order cannot contradict causality order. For a pair of morally strong fence.sc
+operations F1 and F2, if F1 precedes F2 in causality order, then F1 must precede F2 in FenceSC order."
+(也就是如果两个操作存在因果关系，那么他们一定符合Fence-SC order)
+
+### 8.10.3.  Atomicity
+关于原子性，直接看下图所示的对比，就可以略知一二。
+
+![fig5](./images/fig5.png)
+
+### 8.10.4.  No Thin Air
+没太理解这部分，上个图先：
+
+![fig6](./images/fig6.png)
+
+文档中有一句话说的是：" Only the values x == 0 and y == 0 are allowed to satisfy this cycle."
+
+### 8.10.5.  Sequential Consistency Per Location 
+直接上图，可能更直观：
+
+![fig7](./images/fig7.png)
+
+上图的意思我理解就是，无论T2执行顺序再T1前还是T1之后，T2中R2读取的值始终与R1是保持一致的。
+
+### 8.10.6.  Causality
+通信顺序中的关系不能与因果顺序相矛盾。
+
+对应的描述暂时不翻译了，只能意会不能言传：
+
+![fig8](./images/fig8.png)
+
+![fig9](./images/fig9.png)
+
+![fig10](./images/fig10.png)
+
+# Chapter 9. Instruction Set
+
+
 
 
 
