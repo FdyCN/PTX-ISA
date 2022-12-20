@@ -1199,6 +1199,83 @@ operations F1 and F2, if F1 precedes F2 in causality order, then F1 must precede
 ![fig10](./images/fig10.png)
 
 # Chapter 9. Instruction Set
+本章就是整个手册的大头了，介绍各种指令的格式、语法以及作用等。
+
+## 9.2.  PTX Instructions
+通常来说，PTX指令有0-4个操作数，并且有一个可选的条件判断符在操作符的左边，并且用`@`前缀表示：
+
+```
+@p opcode;
+@p opcode a;
+@p opcode d, a;
+@p opcode d, a, b;
+@p opcode d, a, b, c;
+```
+上述指令中，位于操作符右边最近的操作数`d`为目标操作数，其余为源操作数。
+
+当`setp`操作修改两个目标操作数时，我们通过`|`符号进行多个操作数的分隔：
+```
+setp.lt.s32 p|q, a, b; // p = (a < b); q = !(a < b);
+```
+
+对于某些指令，目标操作数是可选的。用下划线(_)表示的`bit bucket`操作数可以用来代替目标寄存器。
+
+## 9.3.  Predicated Execution
+在PTX中，条件寄存器时虚拟的(个人理解就是在物理资源上没有对应的寄存器)，通过`.pred`作为类型标注，所以条件寄存器可以按照如下方式声明：
+```
+.reg .pred p, q, r;
+```
+
+**所有的指令**都可以增加条件操作数来控制执行，使用`@{!}p`来进行条件标注。`@!p`表示条件p取非，注意任何时候表示条件前缀`@`必不可少
+
+举个例子：
+```
+// c代码中的判断
+if (i < n)
+ j = j + 1;
+
+// 对应的ptx代码
+setp.lt.s32 p, i, n; // p = (i < n)
+@p add.s32 j, j, 1; // if i < n, add 1 to j
+```
+如果上述例子有额外的分支，ptx代码如下：
+```
+ setp.lt.s32 p, i, n; // compare i to n
+@!p bra L1; // if p==False, jump to L1
+ add.s32 j, j, 1;
+L1: ...
+```
+
+### 9.3.1.  Comparisons
+
+#### 9.3.1.1.  Integer and Bit-Size Comparisons
+
+直接上图：
+![table19](./images/table19.png)
+
+#### 9.3.1.2.  Floating Point Comparisons
+![table20](./images/table20.png)
+
+![table21](./images/table21.png)
+
+![table22](./images/table22.png)
+
+### 9.3.2.  Manipulating Predicates
+条件判断值可以由如下的指令计算和操作，如：`and`, `or`, `xor`, `not`, `mov`。
+
+PTX中没有直接的办法可以将条件值和整型值之间做转换，也没有直接的办法去读写条件寄存器的值。
+
+不过，`setp`指令可以根据整型值生成条件值，`selp`指令可以根据条件值生成整型值。
+
+举个例子：
+```
+selp.u32 %r1,1,0,%p; // selp其实就是实现的 ?: 三目运算操作符
+```
+
+## 9.4.  Type Information for Instructions and Operands
+
+
+
 
 
 
