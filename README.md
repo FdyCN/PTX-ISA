@@ -1330,6 +1330,149 @@ cvt.f32.u16 d, a; // convert 16-bit unsigned to 32-bit float
 
 ### 9.7.1.  Integer Arithmetic Instructions
 
+#### 9.7.1.1.  Integer Arithmetic Instructions: add
+#### 9.7.1.2.  Integer Arithmetic Instructions: sub
+#### 9.7.1.3.  Integer Arithmetic Instructions: mul
+add\sub\mul指令，没有除法。
+
+用法：
+```
+// 加法指令
+add.type d, a, b;
+add{.sat}.s32 d, a, b; // .sat applies only to .s32
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+
+// 减法指令
+sub.type d, a, b;
+sub{.sat}.s32 d, a, b; // .sat applies only to .s32
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+
+// 乘法指令
+mul.mode.type d, a, b;
+.mode = { .hi, .lo, .wide };
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+// 举个例子
+mul.wide.s16 fa,fxs,fys; // 16*16 bits yields 32 bits
+mul.lo.s16 fa,fxs,fys; // 16*16 bits, save only the low 16 bits
+mul.wide.s32 z,x,y; // 32*32 bits, creates 64 bit result
+```
+
+注意事项：
+1. 上述的`.sat`标识符是指Saturation，即将结果限制在[MinInt, MaxInt]防止溢出，`sub\add`只能用于s32的数据类型，而`mul`指令只能用于`hi.sat.s32`的情况。
+2. 乘法指令中的`.wide`模式只支持16-bit和32-bit的整型类型，并且默认会双倍扩展源操作数的位数。
+
+#### 9.7.1.4.  Integer Arithmetic Instructions: mad
+乘加指令
+
+用法如下：
+```
+mad.mode.type d, a, b, c;
+mad.hi.sat.s32 d, a, b, c;
+.mode = { .hi, .lo, .wide };
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+```
+注意事项：
+`.mode`与乘法相同，只限制乘法的结果。`.sat`使用限制与乘法相同
+
+#### 9.7.1.5.  Integer Arithmetic Instructions: mul24
+#### 9.7.1.6.  Integer Arithmetic Instructions: mad24
+24-bit的快速乘法与24-bit快速乘加
+
+用法如下：
+```
+// 快速乘法
+mul24.mode.type d, a, b;
+.mode = { .hi, .lo };
+.type = { .u32, .s32 };
+
+// 快速乘加
+mad24.mode.type d, a, b, c;
+mad24.hi.sat.s32 d, a, b, c;
+.mode = { .hi, .lo };
+.type = { .u32, .s32 };
+```
+
+注意事项：
+1. 源操作数是由32-bit寄存器搭载，计算结果也保存在32-bit寄存器中；
+2. `.lo`模式下，获取24bit x 24bit = 48bit中的低32-bit数据存储，`.hi`则是取高32-bit数据存储。
+3. 如果没有硬件的支持，`mul24.hi`、`mad24.hi`可能是无效的。（不过一般也不太会有人用这个）
+
+#### 9.7.1.7.  Integer Arithmetic Instructions: sad
+绝对值差求和，表达式如下：
+```
+// d = c + ((a<b) ? b-a : a-b);
+sad.type d, a, b, c;
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+```
+
+#### 9.7.1.8.  Integer Arithmetic Instructions: div
+除法单说，用法和其余四则运算是一样的：
+```
+div.type d, a, b;
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+```
+
+注意事项：
+**除0所得结果是未定义的**。
+
+#### 9.7.1.9.  Integer Arithmetic Instructions: rem
+整型除法求余数，等价于C语言中的`%`运算符。
+```
+rem.type d, a, b;
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+```
+
+#### 9.7.1.10.  Integer Arithmetic Instructions: abs
+#### 9.7.1.11.  Integer Arithmetic Instructions: neg
+取绝对值和相反数
+```
+abs.type d, a;
+.type = { .s16, .s32, .s64 };
+
+neg.type d, a;
+.type = { .s16, .s32, .s64 };
+```
+
+注意事项：
+只支持有符号整型。
+
+#### 9.7.1.12.  Integer Arithmetic Instructions: min
+#### 9.7.1.13.  Integer Arithmetic Instructions: max
+在两者中间选取min\max值
+```
+min.type d, a, b;
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+
+max.type d, a, b;
+.type = { .u16, .u32, .u64, .s16, .s32, .s64 };
+```
+
+注意事项：
+有无符号是不同的，这里应该是想说，比较的两个数应该同为有符号或者无符号。
+
+#### 9.7.1.14.  Integer Arithmetic Instructions: popc
+统计源操作数中有多少bit位是1。
+```
+popc.type d, a;
+.type = { .b32, .b64 };
+
+popc.b32 d, a;
+popc.b64 cnt, X; // cnt is .u32
+
+// 对应的C语言逻辑
+.u32 d = 0;
+while (a != 0) {
+ if (a & 0x1) d++;
+ a = a >> 1;
+} 
+```
+
+注意事项：
+1. 目标操作数总是32-bit的寄存器；
+2. 在`sm_20`及以上的架构才支持。
+
+#### 9.7.1.15.  Integer Arithmetic Instructions: clz
+
 
 
 
