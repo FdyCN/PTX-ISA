@@ -1472,12 +1472,90 @@ while (a != 0) {
 2. 在`sm_20`及以上的架构才支持。
 
 #### 9.7.1.15.  Integer Arithmetic Instructions: clz
+从高位往低位统计bit位为0的个数。
+```
+clz.type d, a;
+.type = { .b32, .b64 };
+
+// C语言表示
+// 注意这里是默认从符号位的后一位开始统计的，所以mask为0x80000000.
+.u32 d = 0;
+if (.type == .b32) { max = 32; mask = 0x80000000; }
+else { max = 64; mask = 0x8000000000000000; }
+while (d < max && (a&mask == 0) ) {
+ d++;
+ a = a << 1;
+}
+```
+
+注意事项：
+1. 在`sm_20`以及往上的架构才支持
+2. 指令的目标操作数均为`.u32`
+
+#### 9.7.1.16.  Integer Arithmetic Instructions: bfind
+找到整型数中**非符号位**中最高有效bit位的位置。
+```
+bfind.type d, a;
+bfind.shiftamt.type d, a;
+.type = { .u32, .u64, .s32, .s64 };
+```
+
+指令说明：
+1. 如果是unsigned int，则返回为1的最高bit位，如果是signed int，负数返回为0的最高bit位，正数则返回为1的最高bit位；
+2. 如果`.shiftamt`被标注，可以理解为当前的bit位离最高有效位还需要左移多少位。
+3. 如果没有非符号有效位被找到，指令会返回` 0xffffffff`.
+
+注意事项：
+1. 在`sm_20`以及往上的架构才支持
+2. 指令的目标操作数均为`.u32`
 
 
+#### 9.7.1.17.  Integer Arithmetic Instructions: fns
+找到被设为`1`的第n个bit位。
+```
+fns.b32 d, mask, base, offset;
+```
 
+说明：
+1. `mask`是被选择的32-bit数，有`.b32`，`.u32`，`.s32`的数据类型
+2. `offset`是基于`base`的位数选择，需要注意的是offset = 1表示第一个bit位即：base + 0, 是`.s32`类型
+3. `d`是dst，数据类型为`.b32`
+4. 如果找不到被设为1的bit位，则d = 0xffffffff
 
+注意事项：
+1. 在`sm_30`以及往上的架构才支持
+2. PTX 6.0版本引入该指令
 
+#### 9.7.1.18.  Integer Arithmetic Instructions: brev
+bit位反转指令
+```
+brev.type d, a;
+.type = { .b32, .b64 };
+```
 
+说明：
+1. 这里所说的反转Bit位，不是按位取反，而是进行轴对称反转，如：b[0] = a[31], b[1] = a[30]以此类推。
+
+注意事项：
+1. 在`sm_20`以及往上的架构才支持
+2. 在PTX 2.0版本引入
+
+#### 9.7.1.19.  Integer Arithmetic Instructions: bfe
+截取对应的bit段
+```
+bfe.type d, a, b, c;
+.type = { .u32, .u64, .s32, .s64 };
+```
+
+说明：
+1. bit段从`a`中选取，差的Bit位补0或着**超出的**部分按照符号位补齐
+2. `b`表示截取bit段的开始bit位
+3. `c`表示截取bit段的长度，其中`b`和`c`的取值都在0~255的范围内
+4. 如果截取的结果`d`的位数大于`a`，那么缺失的部分则按照`a`的符号位进行补齐。
+
+注意事项：
+1. 在`sm_20`以及往上的架构才支持
+2. PTX 2.0版本引入该指令
 
 
 
