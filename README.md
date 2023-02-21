@@ -1557,6 +1557,7 @@ bfe.type d, a, b, c;
 1. 在`sm_20`以及往上的架构才支持
 2. PTX 2.0版本引入该指令
 
+#### 9.7.1.20.  Integer Arithmetic Instructions: bfi
 
 
 
