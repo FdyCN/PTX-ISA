@@ -1658,7 +1658,7 @@ for (i = 0; i < 4; ++i) {
 2. PTX 5.0版本引入该指令
 
 #### 9.7.1.24. Integer Arithmetic Instructions: dp2a
-类似于`dp2a`指令，两个16-bit和和两个8-bit的乘累加操作
+类似于`dp4a`指令，两个16-bit和和两个8-bit的乘累加操作
 ```
 dp2a.mode.atype.btype  d, a, b, c;
 .atype = .btype = { .u32, .s32 };
