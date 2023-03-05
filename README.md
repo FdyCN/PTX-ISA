@@ -1558,9 +1558,141 @@ bfe.type d, a, b, c;
 2. PTX 2.0版本引入该指令
 
 #### 9.7.1.20.  Integer Arithmetic Instructions: bfi
+插入bit段
+```
+bfi.type f, a, b, c, d;
+.type = { .b32, .b64 };
 
+// example
+bfi.b32 d,a,b,start,len;
+```
 
+说明：
+1. 从a中的截取Bit段放入b中，最终结果存储在f中，c表示bit插入的开始位置，d表示bit插入的长度
+2. a\b\f拥有相同的数据类型，c\d为`u32`类型但是数值只能在0~255之间
+3. 如果插入长度为0，则结果f=b
+4. 如果插入开始位置超过了最高位，结果f=b
 
+注意事项：
+1. 在`sm_20`以及往上的架构才支持
+2. PTX 2.0版本引入该指令
+
+#### 9.7.1.21.  Integer Arithmetic Instructions: szext
+符号扩展或零扩展
+```
+szext.mode.type d, a, b;
+.mode = { .clamp, .wrap };
+.type = { .u32, .s32 };
+
+// example
+ szext.clamp.s32 rd, ra, rb;
+ szext.wrap.u32 rd, 0xffffffff, 0; // Result is 0.
+```
+
+说明：
+1. 符号扩展或零扩展从a扩展N个Bit位，其中N在操作数b中指定。结果值存储在d中
+2. 如果a是`s32`则默认为符号扩展，`u32`则默认为零扩展。b为`u32`
+3. 如果N是0，那么`szext`的结果也是0，如果N>=32，那么`szext`的结果取决于`.mode`的选择
+4. 如果选择`clamp`模式，输出直接为a
+5. 如果选择`wrap`模式，则使用N的包装值进行计算(没太看懂，但是可能也用不上。。。)
+
+注意事项：
+1. 在`sm_70`以及往上的架构才支持
+2. PTX 7.6版本引入该指令
+
+#### 9.7.1.22.  Integer Arithmetic Instructions: bmsk
+生成Bit段掩码（注意这里生成掩码是指激活bit位为1）
+```
+bmsk.mode.b32 d, a, b;
+.mode = { .clamp, .wrap };
+
+// example
+ bmsk.clamp.b32 rd, ra, rb;
+ bmsk.wrap.b32 rd, 1, 2; // Creates a bitmask of 0x00000006. 即 0b0110
+```
+
+说明：
+1. 生成一个32-bit的Bit掩码，开始位置为a，设为1的bit段长度为b，结果存放在d中
+2. 在以下两种情况下生成的掩码为0：
+- a >= 32
+- b == 0
+3. 在`.clamp`模式下，b的取值在[0,32]，在`.wrap`模式下，b的取值在[0,31]
+
+注意事项：
+1. 在`sm_70`以及往上的架构才支持
+2. PTX 7.6版本引入该指令
+
+#### 9.7.1.23. Integer Arithmetic Instructions: dp4a
+对32-bit中的4个byte进行dot-product
+```
+dp4a.atype.btype  d, a, b, c;
+.atype = .btype = { .u32, .s32 };
+
+// example
+dp4a.u32.u32           d0, a0, b0, c0;
+dp4a.u32.s32           d1, a1, b1, c1;
+```
+
+说明：
+1. `a`和`b`是32-bit的输入
+2. 如果`a`和`b`均为`u32`则`c`为`u32`，否则`c`为`s32`
+3. 其中对`a`和`b`按字节提取的时候，需要进行sign-extend或者zero-extend之后进行计算
+
+对应的c代码：
+```
+// d = dot(a, b) + c
+
+d = c;
+// Extract 4 bytes from a 32bit input and sign or zero extend
+// based on input type.
+Va = extractAndSignOrZeroExt_4(a, .atype);
+Vb = extractAndSignOrZeroExt_4(b, .btype);
+
+for (i = 0; i < 4; ++i) {
+    d += Va[i] * Vb[i]; 
+}
+```
+
+注意事项：
+1. 在`sm_61`以及往上的架构才支持
+2. PTX 5.0版本引入该指令
+
+#### 9.7.1.24. Integer Arithmetic Instructions: dp2a
+类似于`dp2a`指令，两个16-bit和和两个8-bit的乘累加操作
+```
+dp2a.mode.atype.btype  d, a, b, c;
+.atype = .btype = { .u32, .s32 };
+.mode = { .lo, .hi };
+
+// example
+dp2a.lo.u32.u32           d0, a0, b0, c0;
+dp2a.hi.u32.s32           d1, a1, b1, c1;
+```
+
+说明：
+直接看c代码逻辑比较好理解
+```
+d = c;
+// Extract two 16-bit values from a 32-bit input and sign or zero extend
+// based on input type.
+Va = extractAndSignOrZeroExt_2(a, .atype); 
+
+// Extract four 8-bit values from a 32-bit input and sign or zer extend
+// based on input type.
+Vb = extractAndSignOrZeroExt_4(b, .btype);
+
+b_select = (.mode == .lo) ? 0 : 2;
+
+for (i = 0; i < 2; ++i) {
+    d += Va[i] * Vb[b_select + i];
+}
+```
+
+注意事项：
+1. 在`sm_61`以及往上的架构才支持
+2. PTX 5.0版本引入该指令
+
+### 9.7.2. Extended-Precision Integer Arithmetic Instructions
 
 
 
