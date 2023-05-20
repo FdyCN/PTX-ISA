@@ -1790,8 +1790,55 @@ madc.hi.u32     r3,r5,r7,r3;  // r3+=(r5*r7).[63:32]+carry-in
 ```
 
 ### 9.7.3. Floating-Point Instructions
+对于浮点指令支持的一些情况，先上如下一个表格：
 
+![table26](./images/table26.png)
 
+#### 9.7.3.1. Floating Point Instructions: testp
+该指令了用于测试浮点数的性质。
+
+```
+testp.op.type  p, a;  // result is .pred
+.op   = { .finite, .infinite,
+          .number, .notanumber,
+          .normal, .subnormal };
+.type = { .f32, .f64 };
+
+// example
+testp.notanumber.f32  isnan, f0;
+testp.infinite.f64    p, X;
+```
+
+可选的参数：
+1. `testp.finite`，当浮点数不为无穷数或Nan的时候返回true.
+2. `testp.infinite`，当浮点数为正无穷或负无穷的时候返回true.
+3. `testp.number`，当浮点数不为Nan的时候返回true.
+4. `testp.notanumber`，为Nan则返回true.
+5. `testp.normal`，规格化浮点数(IEEE-745)不为无穷数也不为Nan时返回true.
+6. `testp.subnormal`，为非规格化浮点数且非无穷数非Nan时返回true.
+7. 注意`0.0f`为特殊情况，+0.0f与-0.0f均为normal number.
+
+注意事项：
+1. 该指令在PTX 2.0引入
+2. `sm_20`以上架构才支持
+
+#### 9.7.3.2. Floating Point Instructions: copysign
+顾名思义，拷贝符号位
+
+```
+// 将a的符号位拷贝到b,返回结果d
+copysign.type  d, a, b;
+.type = { .f32, .f64 };
+
+// example
+    copysign.f32  x, y, z;
+    copysign.f64  A, B, C;
+```
+
+注意事项：
+1. 同上
+
+#### 9.7.3.3. Floating Point Instructions: add
 
 
 
