@@ -1693,10 +1693,103 @@ for (i = 0; i < 2; ++i) {
 2. PTX 5.0版本引入该指令
 
 ### 9.7.2. Extended-Precision Integer Arithmetic Instructions
+主要用于扩展精度的整型计算，主要可以支持：
+`add.cc, addc`
+`sub.cc, subc`
+`mad.cc, madc`
+
+#### 9.7.2.1. Extended-Precision Arithmetic Instructions: add.cc
+`add.cc`指令的作用是对两个整数进行加法并保留出进位(carry-out)信息到条件码寄存器`CC.CF`中。
+
+```
+add.cc.type  d, a, b;
+.type = { .u32, .s32, .u64, .s64 };
+
+// example
+@p  add.cc.u32   x1,y1,z1;   // extended-precision addition of
+@p  addc.cc.u32  x2,y2,z2;   // two 128-bit values
+@p  addc.cc.u32  x3,y3,z3;
+@p  addc.u32     x4,y4,z4;
+```
+
+注意事项：
+1. 32-bit `add.cc`在PTX 1.2中引入，所有架构都支持
+2. 64-bit `add.cc`在PTX 4.3中引入，`sm_20`以上架构才支持
+3. 没有四舍五入，也没有饱和截断，signed\unsigned行为相同。
+
+#### 9.7.2.2. Extended-Precision Arithmetic Instructions: addc
+`addc`指令的作用是带入进位(carry-in)的加法，该指令可生成可选的出进位(carry_out)。
+
+```
+addc{.cc}.type  d, a, b;
+.type = { .u32, .s32, .u64, .s64 };
+
+// 等价为
+c = a + b + CC.CF
+
+// example
+@p  add.cc.u32   x1,y1,z1;   // extended-precision addition of
+@p  addc.cc.u32  x2,y2,z2;   // two 128-bit values
+@p  addc.cc.u32  x3,y3,z3;
+@p  addc.u32     x4,y4,z4;
+```
+
+如果指令有`.cc`后缀，则默认的carry-out存储在`CC.CF`中
 
 
+注意事项：
+1. 与`add.cc`一致
 
+#### 9.7.2.3. Extended-Precision Arithmetic Instructions: sub.cc
+与`add.cc`同理，不再展开
 
+#### 9.7.2.4. Extended-Precision Arithmetic Instructions: subc
+与`addc`同理，不再展开
+
+#### 9.7.2.5. Extended-Precision Arithmetic Instructions: mad.cc
+该指令的作用在于计算前两者的乘积，再提取结果的high\low部与第三个元素进行加法运算保留carry-out。
+
+```
+mad{.hi,.lo}.cc.type  d, a, b, c;
+.type = { .u32, .s32, .u64, .s64 };
+
+// 等价为
+t = a * b;
+d = t<63..32> + c;    // for .hi variant
+d = t<31..0> + c;     // for .lo variant
+
+// example
+@p  mad.lo.cc.u32 d,a,b,c;
+    mad.lo.cc.u32 r,p,q,r;
+```
+
+同理，carry-out被存放在`CC.CF`中
+
+注意事项：
+1. 32-bit的指令在PTX 3.0中引入
+2. 64-bit的指令在PTX 4.3中引入
+3. `sm_20`以上架构可用
+
+#### 9.7.2.6. Extended-Precision Arithmetic Instructions: madc
+同理可知，该指令带入进位(carry-in)的加法，该指令可生成可选的出进位(carry_out)。
+
+直接上例子:
+```
+// extended-precision multiply:  [r3,r2,r1,r0] = [r5,r4] * [r7,r6]
+mul.lo.u32     r0,r4,r6;      // r0=(r4*r6).[31:0], no carry-out
+mul.hi.u32     r1,r4,r6;      // r1=(r4*r6).[63:32], no carry-out
+mad.lo.cc.u32  r1,r5,r6,r1;   // r1+=(r5*r6).[31:0], may carry-out
+madc.hi.u32    r2,r5,r6,0;    // r2 =(r5*r6).[63:32]+carry-in,
+                              // no carry-out
+mad.lo.cc.u32   r1,r4,r7,r1;  // r1+=(r4*r7).[31:0], may carry-out
+madc.hi.cc.u32  r2,r4,r7,r2;  // r2+=(r4*r7).[63:32]+carry-in,
+                              // may carry-out
+addc.u32        r3,0,0;       // r3 = carry-in, no carry-out
+mad.lo.cc.u32   r2,r5,r7,r2;  // r2+=(r5*r7).[31:0], may carry-out
+madc.hi.u32     r3,r5,r7,r3;  // r3+=(r5*r7).[63:32]+carry-in
+```
+
+### 9.7.3. Floating-Point Instructions
 
 
 
