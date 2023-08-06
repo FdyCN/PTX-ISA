@@ -1839,7 +1839,99 @@ copysign.type  d, a, b;
 1. 同上
 
 #### 9.7.3.3. Floating Point Instructions: add
+浮点数相加指令。
 
+```
+add{.rnd}{.ftz}{.sat}.f32  d, a, b;
+add{.rnd}.f64              d, a, b;
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+@p  add.rz.ftz.f32  f1,f2,f3;
+```
+
+存在如下四种rounding mode：
+1. `.rn`小数部分的最低有效位(LSB，the least significant bit)舍入到最近的偶数(nearest even)
+2. `.rz`小数部分的最低有效位向0舍入
+3. `.rm`小数部分最低有效位向负无穷舍入
+4. `.rp`小数部分最低有效位向正无穷舍入
+
+默认的舍入模式是`.rn`，注意当显式设置rounding mode的时候，编译器会保守的进行优化，而使用默认rounding mode的时候，编译器会进行相对激进的优化。
+比如，当`add` `mul`指令没有使用显式rounding mode的时候，可能会被优化为融合的mad乘加指令。
+
+过小的浮点数：
+1. 在sm_20+的架构上，默认过小的浮点数是支持的
+2. 对应的`add.ftz.f32`则会将过小的浮点数刷新为保持符号的0
+3. 在sm_1x的架构上，`add.fp64`支持过小的浮点数，`add.f32`则直接刷新为保持符号的0.
+
+截断模式：
+`add.sat.f32`会将结果截断在[0.0f, 1.0f]之间。且`NaN`的结果会被刷新为+0.0f.
+
+注意事项：
+1. `add.f32`所有架构都支持
+2. `add.f64`在sm_13架构上才支持
+3. `.rn` `.rz`所有架构都支持
+4. `.rm` `.rp`对f64需要sm_13+，对f32需要sm_20+
+
+#### 9.7.3.4. Floating Point Instructions: sub
+浮点相减指令。
+
+```
+sub{.rnd}{.ftz}{.sat}.f32  d, a, b;
+sub{.rnd}.f64              d, a, b;
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+sub.f32 c,a,b;
+sub.rn.ftz.f32  f1,f2,f3;
+```
+
+模型与注意事项同float add
+
+#### 9.7.3.5. Floating Point Instructions: mul
+浮现相乘指令。
+
+```
+mul{.rnd}{.ftz}{.sat}.f32  d, a, b;
+mul{.rnd}.f64              d, a, b;
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+mul.ftz.f32 circumf,radius,pi  // a single-precision multiply
+```
+
+模式和注意事项同上
+
+#### 9.7.3.6. Floating Point Instructions: fma
+融合的浮点乘加指令。
+
+该融合指令不存在精度的损失，也可以理解为，中间的乘加操作没做优化，等价于add + mul。
+
+```
+fma.rnd{.ftz}{.sat}.f32  d, a, b, c;
+fma.rnd.f64              d, a, b, c;
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+    fma.rn.ftz.f32  w,x,y,z;
+@p  fma.rn.f64      d,a,b,c;
+```
+
+`fma.f32` `fma.f64`都是在无穷精度上做a + b = c，然后在无穷精度上做 c * d = e，最后在使用`.rnd`舍入模式将无穷数舍入到对应的浮点数。
+NOTE: `fma.f64`和`mad.f64`是等价的。
+
+模式：
+1. 各种模式和前面一样，不同的地方在于，没有默认的rounding mode
+
+注意事项：
+1. f64需要 PTX 1.4+，sm_20+
+2. f32需要 PTX 2.0+，sm_13+
+
+#### 9.7.3.7. Floating Point Instructions: mad
 
 
 
