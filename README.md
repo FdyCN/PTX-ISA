@@ -1932,9 +1932,241 @@ NOTE: `fma.f64`和`mad.f64`是等价的。
 2. f32需要 PTX 2.0+，sm_13+
 
 #### 9.7.3.7. Floating Point Instructions: mad
+融合的浮点乘加指令。
 
 
+```
+mad{.ftz}{.sat}.f32      d, a, b, c;    // .target sm_1x
+mad.rnd{.ftz}{.sat}.f32  d, a, b, c;    // .target sm_20
+mad.rnd.f64              d, a, b, c;    // .target sm_13 and higher
 
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+@p  mad.f32  d,a,b,c
+```
+
+模式：
+1. 在`sm_20+`的架构上fp32\64都是在无穷精度上做a + b = c
+2. 在`sm_1x`架构上f32会按照double精度进行中间计算，尾数截断为23bit，保留指数位。`mad.f32`指令与分开的乘加指令结果相同，在JIT编译sm2.0设备的时候，该指令会被融合为一条乘加指令，精度上和分开的两条指令有一丢丢差别。
+3. 在`sm_1x`架构上fp64同样以double进度进行中间计算，但是没有单条指令的优化。
+4. 各种模式和前面一样，不同的地方在于，没有默认的rounding mode.
+
+注意事项：
+1. `mad.f32`指令使用与全架构
+2. `mad.f64`指令需要`sm_13+`
+
+#### 9.7.3.8. Floating Point Instructions: div
+浮点除法指令。
+
+```
+div.approx{.ftz}.f32  d, a, b;  // fast, approximate divide
+div.full{.ftz}.f32    d, a, b;  // full-range approximate divide
+div.rnd{.ftz}.f32     d, a, b;  // IEEE 754 compliant rounding
+div.rnd.f64           d, a, b;  // IEEE 754 compliant rounding
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+div.approx.ftz.f32  diam,circum,3.14159;
+div.full.ftz.f32    x, y, z;
+div.rn.f64          xd, yd, zd;  
+```
+
+模式：
+1. 各种模式和前面一样，不同的地方在于，没有默认的rounding mode.
+
+参数解释:
+1. `div.approx.f32`是一种快速的近似除法实现，按照`d = a * (1/b)`来实现，max ulp = 2.
+2. `div.full.f32`是一种快速的全范围近似除法实现，这个相比approx的精度更高一些，但是与数学计算还是有精度损失，max ulp = 2/
+
+注意事项：
+1. 从PTX 1.4开始，需要显式设置`.approx`、`.full`、`.ftz`
+2. 在PTX 1.0 ~ 1.3，默认模式`div.approx.ftz.f32`和`div.rn.f64`
+3. `div.approx.f32`和`div.full.f32`是全架构支持
+
+#### 9.7.3.9. Floating Point Instructions: abs
+浮点取绝对值。
+
+```
+abs{.ftz}.f32  d, a;
+abs.f64        d, a;
+
+// example
+abs.ftz.f32  x,f0;
+```
+
+注意事项同上，不多赘述。
+
+#### 9.7.3.10. Floating Point Instructions: neg
+取相反数。
+
+```
+neg{.ftz}.f32  d, a;
+neg.f64        d, a;
+
+// example
+neg.ftz.f32  x,f0;
+```
+
+注意事项同上，不多赘述。
+
+#### 9.7.3.11. Floating Point Instructions: min
+取两个浮点数中的较小数。
+
+```
+min{.ftz}{.NaN}{.xorsign.abs}.f32  d, a, b;
+min.f64                            d, a, b;
+
+// example
+@p  min.ftz.f32  z,z,x;
+    min.f64      a,b,c;
+    // fp32 min with .NaN
+    min.NaN.f32  f0,f1,f2;
+    // fp32 min with .xorsign.abs 
+    min.xorsign.abs.f32 Rd, Ra, Rb;
+```
+
+描述：
+1. 当`.NaN`被使用，则当任一输入是NaN的时候，结果返回NaN
+2. 当`.abs`被使用，输出为两个输入绝对值相比较的结果
+3. 当`.xorsign`被使用，输出的符号位是两个输入的符号位会尽心XOR异或操作后的结果
+4. `.abs`和`.xorsign`必须一起使用
+
+注意事项：
+1. `min.NaN`在PTX 7.0被引入,需要`sm_80+`
+2. `min.xorsign.abs`在PTX 7.2被引入，需要`sm_86+`
+
+#### 9.7.3.12. Floating Point Instructions: max
+取两个浮点数中的较大数。
+
+```
+max{.ftz}{.NaN}{.xorsign.abs}.f32  d, a, b;
+max.f64                            d, a, b;
+
+// example
+max.ftz.f32  f0,f1,f2;
+max.f64      a,b,c;
+// fp32 max with .NaN
+max.NaN.f32  f0,f1,f2;
+// fp32 max with .xorsign.abs
+max.xorsign.abs.f32 Rd, Ra, Rb;
+```
+
+和`min`指令的参数和注意事项相同，不多赘述
+
+#### 9.7.3.13. Floating Point Instructions: rcp
+取浮点数的倒数。
+
+```
+rcp.approx{.ftz}.f32  d, a;  // fast, approximate reciprocal
+rcp.rnd{.ftz}.f32     d, a;  // IEEE 754 compliant rounding
+rcp.rnd.f64           d, a;  // IEEE 754 compliant rounding
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+rcp.approx.ftz.f32  ri,r;
+rcp.rn.ftz.f32      xi,x;
+rcp.rn.f64          xi,x;
+```
+
+看作除法，和`div`的要求是基本一致的，不多赘述
+
+#### 9.7.3.14. Floating Point Instructions: rcp.approx.ftz.f64
+计算浮点倒数的快速粗略近似值。
+
+```
+rcp.approx.ftz.f64  d, a;
+
+// example
+rcp.ftz.f64  xi,x;
+```
+
+#### 9.7.3.15. Floating Point Instructions: sqrt
+浮点数平方根。
+
+```
+sqrt.approx{.ftz}.f32  d, a; // fast, approximate square root
+sqrt.rnd{.ftz}.f32     d, a; // IEEE 754 compliant rounding
+sqrt.rnd.f64           d, a; // IEEE 754 compliant rounding
+
+.rnd = { .rn, .rz, .rm, .rp };
+
+// example
+sqrt.approx.ftz.f32  r,x;
+sqrt.rn.ftz.f32      r,x;
+sqrt.rn.f64          r,x;
+```
+
+#### 9.7.3.16. Floating Point Instructions: rsqrt
+浮点数平方根的倒数。
+
+```
+rsqrt.approx{.ftz}.f32  d, a;
+rsqrt.approx.f64        d, a;
+
+// example
+rsqrt.approx.ftz.f32  isr, x;
+rsqrt.approx.f64      ISR, X;
+```
+
+#### 9.7.3.17. Floating Point Instructions: rsqrt.approx.ftz.f64
+f64的平方根倒数，没啥多说的，真的需要再来补充
+
+#### 9.7.3.18. Floating Point Instructions: sin
+浮点正弦函数。
+
+```
+sin.approx{.ftz}.f32  d, a;
+
+// example
+sin.approx.ftz.f32  sa, a;
+```
+
+#### 9.7.3.19. Floating Point Instructions: cos
+浮点余弦函数。
+
+```
+cos.approx{.ftz}.f32  d, a;
+
+// example
+cos.approx.ftz.f32  ca, a;
+```
+
+#### 9.7.3.20. Floating Point Instructions: lg2
+以2为底的浮点对数。
+
+```
+lg2.approx{.ftz}.f32  d, a;
+
+// example
+lg2.approx.ftz.f32  la, a;
+```
+
+#### 9.7.3.21. Floating Point Instructions: ex2
+以2为底的浮点指数。
+
+```
+ex2.approx{.ftz}.f32  d, a;
+
+// example
+ex2.approx.ftz.f32  xa, a;
+```
+输入、输出都为浮点，这个好，在CUDA built-in里面的pow函数，好像是只支持正整数
+
+#### 9.7.3.22. Floating Point Instructions: tanh
+浮点双曲正切
+
+```
+tanh.approx.f32 d, a;
+
+// example
+tanh.approx.f32 sa, a;
+```
+
+### Half Precision Floating-Point Instructions
+半精度浮点指令可以操作`.f16`和`.f16x2`的寄存器。
 
 
 
