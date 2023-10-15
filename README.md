@@ -2165,18 +2165,273 @@ tanh.approx.f32 d, a;
 tanh.approx.f32 sa, a;
 ```
 
-### Half Precision Floating-Point Instructions
+### 9.7.4. Half Precision Floating-Point Instructions
 半精度浮点指令可以操作`.f16`和`.f16x2`的寄存器。
 
+#### 9.7.4.1. Half Precision Floating Point Instructions: add
+半精度加法。
+
+```
+add{.rnd}{.ftz}{.sat}.f16   d, a, b;
+add{.rnd}{.ftz}{.sat}.f16x2 d, a, b;
+
+add{.rnd}.bf16   d, a, b;
+add{.rnd}.bf16x2 d, a, b;
+
+.rnd = { .rn };
+
+// example
+// scalar f16 additions
+add.f16        d0, a0, b0;
+add.rn.f16     d1, a1, b1;
+add.bf16       bd0, ba0, bb0;
+add.rn.bf16    bd1, ba1, bb1;
+     
+// SIMD f16 addition
+cvt.rn.f16.f32 h0, f0;
+cvt.rn.f16.f32 h1, f1;
+cvt.rn.f16.f32 h2, f2;
+cvt.rn.f16.f32 h3, f3;
+mov.b32  p1, {h0, h1};   // pack two f16 to 32bit f16x2
+mov.b32  p2, {h2, h3};   // pack two f16 to 32bit f16x2
+add.f16x2  p3, p1, p2;   // SIMD f16x2 addition
+
+// SIMD bf16 addition
+cvt.rn.bf16x2.f32 p4, f4, f5; // Convert two f32 into packed bf16x2 
+cvt.rn.bf16x2.f32 p5, f6, f7; // Convert two f32 into packed bf16x2
+add.bf16x2  p6, p4, p5;       // SIMD bf16x2 addition
+
+// SIMD fp16 addition
+ld.global.b32   f0, [addr];     // load 32 bit which hold packed f16x2
+ld.global.b32   f1, [addr + 4]; // load 32 bit which hold packed f16x2
+add.f16x2       f2, f0, f1;     // SIMD f16x2 addition
+
+ld.global.b32   f3, [addr + 8];  // load 32 bit which hold packed bf16x2
+ld.global.b32   f4, [addr + 12]; // load 32 bit which hold packed bf16x2
+add.bf16x2      f5, f3, f4;      // SIMD bf16x2 addition 
+```
+
+上述的示例已经说的比较清楚了，`.f16x2`和`.bf16x2`实际上就是一种SIMD的操作。
+
+注意事项：
+1. 半精度加法在PTX 4.2被引入
+2. `add{.rnd}.bf16`和`add{.rnd}.bf16x2`在PTX 7.8被引入
+3. 半精度指令要求`sm_53`以上的架构
+4. `add{.rnd}.bf16`和`add{.rnd}.bf16x2`要求`sm_90`以上的架构
+
+#### 9.7.4.2. Half Precision Floating Point Instructions: sub
+半精度减法。
+
+```
+sub{.rnd}{.ftz}{.sat}.f16   d, a, b;
+sub{.rnd}{.ftz}{.sat}.f16x2 d, a, b;
+
+sub{.rnd}.bf16   d, a, b;
+sub{.rnd}.bf16x2 d, a, b;
+
+.rnd = { .rn };
+
+// example
+// scalar f16 subtractions
+sub.f16        d0, a0, b0;
+sub.rn.f16     d1, a1, b1;
+sub.bf16       bd0, ba0, bb0;     
+sub.rn.bf16    bd1, ba1, bb1;
+     
+// SIMD f16 subtraction
+cvt.rn.f16.f32 h0, f0;
+cvt.rn.f16.f32 h1, f1;
+cvt.rn.f16.f32 h2, f2;
+cvt.rn.f16.f32 h3, f3;
+mov.b32  p1, {h0, h1};   // pack two f16 to 32bit f16x2
+mov.b32  p2, {h2, h3};   // pack two f16 to 32bit f16x2
+sub.f16x2  p3, p1, p2;   // SIMD f16x2 subtraction
+
+// SIMD bf16 subtraction
+cvt.rn.bf16x2.f32 p4, f4, f5; // Convert two f32 into packed bf16x2 
+cvt.rn.bf16x2.f32 p5, f6, f7; // Convert two f32 into packed bf16x2
+sub.bf16x2  p6, p4, p5;       // SIMD bf16x2 subtraction
+     
+// SIMD fp16 subtraction
+ld.global.b32   f0, [addr];     // load 32 bit which hold packed f16x2
+ld.global.b32   f1, [addr + 4]; // load 32 bit which hold packed f16x2
+sub.f16x2       f2, f0, f1;     // SIMD f16x2 subtraction
+
+// SIMD bf16 subtraction
+ld.global.b32   f3, [addr + 8];  // load 32 bit which hold packed bf16x2
+ld.global.b32   f4, [addr + 12]; // load 32 bit which hold packed bf16x2
+sub.bf16x2      f5, f3, f4;      // SIMD bf16x2 subtraction
+```
+
+注意事项同上，不多赘述。
+
+#### 9.7.4.3. Half Precision Floating Point Instructions: mul
+半精度乘法。
+
+```
+mul{.rnd}{.ftz}{.sat}.f16   d, a, b;
+mul{.rnd}{.ftz}{.sat}.f16x2 d, a, b;
+
+mul{.rnd}.bf16   d, a, b;
+mul{.rnd}.bf16x2 d, a, b;
+
+.rnd = { .rn };
+
+// example
+同上
+```
+
+#### 9.7.4.4. Half Precision Floating Point Instructions: fma
+半精度乘加。
+
+```
+fma.rnd{.ftz}{.sat}.f16     d, a, b, c;
+fma.rnd{.ftz}{.sat}.f16x2   d, a, b, c;
+fma.rnd{.ftz}.relu.f16      d, a, b, c;
+fma.rnd{.ftz}.relu.f16x2    d, a, b, c;
+fma.rnd{.relu}.bf16         d, a, b, c;
+fma.rnd{.relu}.bf16x2       d, a, b, c;
+
+.rnd = { .rn };
+
+// example
+// scalar f16 fused multiply-add
+fma.rn.f16         d0, a0, b0, c0;
+fma.rn.f16         d1, a1, b1, c1;
+fma.rn.relu.f16    d1, a1, b1, c1;
+
+// scalar bf16 fused multiply-add
+fma.rn.bf16        d1, a1, b1, c1;
+fma.rn.relu.bf16   d1, a1, b1, c1;
+     
+// SIMD f16 fused multiply-add
+cvt.rn.f16.f32 h0, f0;
+cvt.rn.f16.f32 h1, f1;
+cvt.rn.f16.f32 h2, f2;
+cvt.rn.f16.f32 h3, f3;
+mov.b32  p1, {h0, h1}; // pack two f16 to 32bit f16x2
+mov.b32  p2, {h2, h3}; // pack two f16 to 32bit f16x2
+fma.rn.f16x2  p3, p1, p2, p2;   // SIMD f16x2 fused multiply-add
+fma.rn.relu.f16x2  p3, p1, p2, p2; // SIMD f16x2 fused multiply-add with relu saturation mode
+// SIMD fp16 fused multiply-add
+ld.global.b32   f0, [addr];     // load 32 bit which hold packed f16x2
+ld.global.b32   f1, [addr + 4]; // load 32 bit which hold packed f16x2
+fma.rn.f16x2    f2, f0, f1, f1; // SIMD f16x2 fused multiply-add
+     
+// SIMD bf16 fused multiply-add
+fma.rn.bf16x2       f2, f0, f1, f1; // SIMD bf16x2 fused multiply-add
+fma.rn.relu.bf16x2  f2, f0, f1, f1; // SIMD bf16x2 fused multiply-add with relu saturation mode
+```
+
+注意模式上多了个`relu`，这个在深度学习中是很常见的激活函数，即：d = max(a*b+c, 0.0f);
 
 
+#### 9.7.4.5. Half Precision Floating Point Instructions: neg
+半精度浮点相反数。
+
+```
+neg{.ftz}.f16    d, a;
+neg{.ftz}.f16x2  d, a;
+neg.bf16         d, a;
+neg.bf16x2       d, a;
+
+// example
+neg.ftz.f16  x,f0;
+neg.bf16     x,b0;
+neg.bf16x2   x1,b1;
+```
+
+#### 9.7.4.6. Half Precision Floating Point Instructions: abs
+半精度浮点绝对值。
+
+```
+abs{.ftz}.f16    d, a;
+abs{.ftz}.f16x2  d, a; 
+abs.bf16         d, a;
+abs.bf16x2       d, a;
+
+// example
+abs.ftz.f16  x,f0;
+abs.bf16     x,b0;
+abs.bf16x2   x1,b1;
+```
 
 
+#### 9.7.4.7. Half Precision Floating Point Instructions: min
+两个半精度取较小值。
 
+```
+min{.ftz}{.NaN}{.xorsign.abs}.f16      d, a, b;
+min{.ftz}{.NaN}{.xorsign.abs}.f16x2    d, a, b;
+min{.NaN}{.xorsign.abs}.bf16           d, a, b;
+min{.NaN}{.xorsign.abs}.bf16x2         d, a, b;
 
+// example
+min.ftz.f16       h0,h1,h2;
+min.f16x2         b0,b1,b2;
+// SIMD fp16 min with .NaN
+min.NaN.f16x2     b0,b1,b2;
+min.bf16          h0, h1, h2;
+// SIMD bf16 min with NaN
+min.NaN.bf16x2    b0, b1, b2;
+// scalar bf16 min with xorsign.abs
+min.xorsign.abs.bf16 Rd, Ra, Rb
+```
 
+#### 9.7.4.8. Half Precision Floating Point Instructions: max
+两个半精度取较大值。
 
+```
+max{.ftz}{.NaN}{.xorsign.abs}.f16      d, a, b;
+max{.ftz}{.NaN}{.xorsign.abs}.f16x2    d, a, b;
+max{.NaN}{.xorsign.abs}.bf16           d, a, b;
+max{.NaN}{.xorsign.abs}.bf16x2         d, a, b;
 
+// example
+max.ftz.f16       h0,h1,h2;
+max.f16x2         b0,b1,b2;
+// SIMD fp16 max with NaN
+max.NaN.f16x2     b0,b1,b2;
+// scalar f16 max with xorsign.abs
+max.xorsign.abs.f16 Rd, Ra, Rb;
+max.bf16          h0, h1, h2;
+// scalar bf16 max and NaN
+max.NaN.bf16x2    b0, b1, b2;
+// SIMD bf16 max with xorsign.abs
+max.xorsign.abs.bf16x2 Rd, Ra, Rb;
+```
+
+#### 9.7.4.9. Half Precision Floating Point Instructions: tanh
+半精度双曲正切。
+
+```
+tanh.approx.type d, a;
+
+.type = {.f16, .f16x2, .bf16, .bf16x2}
+
+// example
+tanh.approx.f16    h1, h0;
+tanh.approx.f16x2  hd1, hd0;
+tanh.approx.bf16   b1, b0;
+tanh.approx.bf16x2 hb1, hb0;
+```
+
+#### 9.7.4.10. Half Precision Floating Point Instructions: ex2
+以2为底的半精度指数。
+
+```
+ex2.approx.atype     d, a;
+ex2.approx.ftz.btype d, a;
+
+.atype = { .f16,  .f16x2}
+.btype = { .bf16, .bf16x2}
+
+// example
+ex2.approx.f16         h1, h0;
+ex2.approx.f16x2       hd1, hd0;
+ex2.approx.ftz.bf16    b1, b2;
+ex2.approx.ftz.bf16x2  hb1, hb2;
+```
 
 
 
