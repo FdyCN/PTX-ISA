@@ -2433,9 +2433,110 @@ ex2.approx.ftz.bf16    b1, b2;
 ex2.approx.ftz.bf16x2  hb1, hb2;
 ```
 
+### 9.7.5. Comparison and Selection Instructions
+包含`set`\`setp`\`selp`\`slct`四条指令
 
+#### 9.7.5.1. Comparison and Selection Instructions: set
+通过比较两个源操作数的关系，返回一个bool值，或者进一步将这个bool值进一步用于bool操作得到最终结果
 
+```
+set.CmpOp{.ftz}.dtype.stype         d, a, b;
+set.CmpOp.BoolOp{.ftz}.dtype.stype  d, a, b, {!}c;
 
+.CmpOp  = { eq, ne, lt, le, gt, ge, lo, ls, hi, hs,
+            equ, neu, ltu, leu, gtu, geu, num, nan };
+.BoolOp = { and, or, xor };
+.dtype  = { .u32, .s32, .f32 };
+.stype  = { .b16, .b32, .b64,
+            .u16, .u32, .u64,
+            .s16, .s32, .s64,
+                  .f32, .f64 };
+
+// example
+@p  set.lt.and.f32.s32  d,a,b,r; //d对应f32，a\b对应s.32，r对应@p也就是.pred类型
+    set.eq.u32.u32      d,i,n;
+
+// 对应的c逻辑示例
+t = (a CmpOp b) ? 1 : 0;
+if (isFloat(dtype))
+    d = BoolOp(t, c) ? 1.0f : 0x00000000;
+else
+    d = BoolOp(t, c) ? 0xffffffff : 0x00000000;
+// 当返回值为整形类型时，通过bool操作返回的true使用的时0xffffffff而不是0x01
+```
+
+注意事项：
+1. `num`CmpOp用于检测两个数是否都是有效值(非Nan)
+2. `nan`CmpOp用于检测两个数是否**非全为有效值**
+
+#### 9.7.5.2. Comparison and Selection Instructions: setp
+和`set`指令类似，但该指令可以存在两个目标操作数
+
+```
+setp.CmpOp{.ftz}.type         p[|q], a, b;
+setp.CmpOp.BoolOp{.ftz}.type  p[|q], a, b, {!}c;
+
+.CmpOp  = { eq, ne, lt, le, gt, ge, lo, ls, hi, hs,
+            equ, neu, ltu, leu, gtu, geu, num, nan };
+.BoolOp = { and, or, xor };
+.type   = { .b16, .b32, .b64,
+            .u16, .u32, .u64,
+            .s16, .s32, .s64,
+                  .f32, .f64 };
+
+// example
+    setp.lt.and.s32  p|q,a,b,r;
+@q  setp.eq.u32      p,i,n;
+
+// c语言示例
+t = (a CmpOp b) ? 1 : 0;
+p = BoolOp(t, c);
+q = BoolOp(!t, c);
+```
+
+#### 9.7.5.3. Comparison and Selection Instructions: selp
+选择操作，与三元操作符?:同理
+
+```
+selp.type d, a, b, c;
+
+.type = { .b16, .b32, .b64,
+          .u16, .u32, .u64,
+          .s16, .s32, .s64,
+                .f32, .f64 };
+
+// example
+    selp.s32  r0,r,g,p;  //条件应该就是p本身？
+@q  selp.f32  f0,t,x,xp; //条件应该是xp == q？
+
+// c语言示例
+d = (c == 1) ? a : b;
+```
+
+#### 9.7.5.4. Comparison and Selection Instructions: slct
+基于第三个操作数的符号进行选择
+
+```
+slct.dtype.s32        d, a, b, c; // dtype是a\b\d的数据类型， s32\f32是c的数据类型
+slct{.ftz}.dtype.f32  d, a, b, c;
+
+.dtype = { .b16, .b32, .b64,
+           .u16, .u32, .u64,
+           .s16, .s32, .s64,
+                 .f32, .f64 };
+
+// example
+slct.u32.s32  x, y, z, val;
+slct.ftz.u64.f32  A, B, C, fval;
+
+// c语言示例
+d = (c >= 0) ? a : b;
+```
+
+### 9.7.6. Half Precision Comparison Instructions
+只有`set`和`setp`两条指令支持
+
+#### 9.7.6.1. Half Precision Comparison Instructions: set
 
 
 
