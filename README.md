@@ -2537,9 +2537,129 @@ d = (c >= 0) ? a : b;
 只有`set`和`setp`两条指令支持
 
 #### 9.7.6.1. Half Precision Comparison Instructions: set
+指令的用法和上文提到的`set`指令是大同小异的，区别的地方是half有对应的f16\bf16\f16x2的不同类型
 
+```
+set.CmpOp{.ftz}.f16.stype            d, a, b;
+set.CmpOp.BoolOp{.ftz}.f16.stype     d, a, b, {!}c;
 
+set.CmpOp.bf16.stype                 d, a, b;
+set.CmpOp.BoolOp.bf16.stype          d, a, b, {!}c;
 
+set.CmpOp{.ftz}.dtype.f16            d, a, b;
+set.CmpOp.BoolOp{.ftz}.dtype.f16     d, a, b, {!}c;
+.dtype  = { .u16, .s16, .u32, .s32}
+
+set.CmpOp.dtype.bf16                 d, a, b;
+set.CmpOp.BoolOp.dtype.bf16          d, a, b, {!}c;
+.dtype  = { .u16, .s16, .u32, .s32}
+
+set.CmpOp{.ftz}.dtype.f16x2          d, a, b;
+set.CmpOp.BoolOp{.ftz}.dtype.f16x2   d, a, b, {!}c;
+.dtype  = { .f16x2, .u32, .s32}
+
+set.CmpOp.dtype.bf16x2               d, a, b;
+set.CmpOp.BoolOp.dtype.bf16x2        d, a, b, {!}c;
+.dtype  = { .bf16x2, .u32, .s32}
+
+.CmpOp  = { eq, ne, lt, le, gt, ge,
+            equ, neu, ltu, leu, gtu, geu, num, nan };
+.BoolOp = { and, or, xor };
+.stype  = { .b16, .b32, .b64,
+            .u16, .u32, .u64,
+            .s16, .s32, .s64,
+            .f16, .f32, .f64};
+
+// example
+set.lt.and.f16.f16  d,a,b,r;
+set.eq.f16x2.f16x2  d,i,n;
+set.eq.u32.f16x2    d,i,n;
+set.lt.and.u16.f16  d,a,b,r;
+set.ltu.or.bf16.f16    d,u,v,s;
+set.equ.bf16x2.bf16x2  d,j,m;
+set.geu.s32.bf16x2     d,j,m;
+set.num.xor.s32.bf16   d,u,v,s;
+
+// c语言示例
+// 主要就是f16x2需要做unpack-->cmp-->pack的操作
+if (stype == .f16x2 || stype == .bf16x2) {
+    fA[0] = a[0:15];
+    fA[1] = a[16:31];
+    fB[0] = b[0:15];
+    fB[1] = b[16:31];
+    t[0]   = (fA[0] CmpOp fB[0]) ? 1 : 0;
+    t[1]   = (fA[1] CmpOp fB[1]) ? 1 : 0;
+    if (dtype == .f16x2 || stype == .bf16x2) {
+        for (i = 0; i < 2; i++) {
+            d[i] = BoolOp(t[i], c) ? 1.0 : 0.0;
+        }
+    } else {
+        for (i = 0; i < 2; i++) {
+            d[i] = BoolOp(t[i], c) ? 0xffff : 0;
+        }
+    }
+} else if (dtype == .f16 || stype == .bf16) {
+    t = (a CmpOp b) ? 1 : 0;
+    d = BoolOp(t, c) ? 1.0 : 0.0;
+} else  { // Integer destination type
+    trueVal = (isU16(dtype) || isS16(dtype)) ?  0xffff : 0xffffffff;
+    t = (a CmpOp b) ? 1 : 0;
+    d = BoolOp(t, c) ? trueVal : 0;
+}
+```
+
+注意事项：
+1. 该指令再PTX 4.2版本才引入，目标架构要求`sm_53`往上
+2. `set.{u16,u32,s16,s32}.f16`和`set.{u32,s32}.f16x2`在PTX 6.5版本引入
+3. `set.{u16, u32, s16, s32}.bf16`, `set.{u32, s32, bf16x2}.bf16x2`, `set.bf16.{s16,u16,f16,b16,s32,u32,f32,b32,s64,u64,f64,b64}`在PTX 7.8才引入，目标架构需要`sm_90`往上，最新的feature了
+
+#### 9.7.6.2. Half Precision Comparison Instructions: setp
+同样与之前的类似，只不过多了更多的数据类型
+
+```
+setp.CmpOp{.ftz}.f16           p, a, b;
+setp.CmpOp.BoolOp{.ftz}.f16    p, a, b, {!}c;
+
+setp.CmpOp{.ftz}.f16x2         p|q, a, b;
+setp.CmpOp.BoolOp{.ftz}.f16x2  p|q, a, b, {!}c;
+
+setp.CmpOp.bf16                p, a, b;
+setp.CmpOp.BoolOp.bf16         p, a, b, {!}c;
+
+setp.CmpOp.bf16x2              p|q, a, b;
+setp.CmpOp.BoolOp.bf16x2       p|q, a, b, {!}c;
+
+.CmpOp  = { eq, ne, lt, le, gt, ge,
+            equ, neu, ltu, leu, gtu, geu, num, nan };
+.BoolOp = { and, or, xor };
+
+// example
+setp.lt.and.f16x2  p|q,a,b,r;
+@q  setp.eq.f16    p,i,n;
+
+setp.gt.or.bf16x2  u|v,c,d,s;
+@q  setp.eq.bf16   u,j,m;
+
+// c语言示例
+if (type == .f16 || type == .bf16) {
+     t = (a CmpOp b) ? 1 : 0;
+     p = BoolOp(t, c);
+} else if (type == .f16x2 || type == .bf16x2) {
+    fA[0] = a[0:15];
+    fA[1] = a[16:31];
+    fB[0] = b[0:15];
+    fB[1] = b[16:31];
+    t[0] = (fA[0] CmpOp fB[0]) ? 1 : 0;
+    t[1] = (fA[1] CmpOp fB[1]) ? 1 : 0;
+    p = BoolOp(t[0], c);
+    q = BoolOp(t[1], c);
+}
+```
+
+注意事项：
+1. `setp.{bf16/bf16x2}`在PTX 7.8引入，目标设备`sm_90`往上
+
+### 9.7.7. Logic and Shift Instructions
 
 
 
