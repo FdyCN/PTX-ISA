@@ -2659,12 +2659,230 @@ if (type == .f16 || type == .bf16) {
 注意事项：
 1. `setp.{bf16/bf16x2}`在PTX 7.8引入，目标设备`sm_90`往上
 
-### 9.7.7. Logic and Shift Instructions
+### 9.7.7 Logic and Shift Instructions
+逻辑和移位指令，没有数据类型的区分。
 
+#### 9.7.7.1. Logic and Shift Instructions: and
+位与指令，同：&
 
+```
+and.type d, a, b;
+.type = { .pred, .b16, .b32, .b64 };
 
+// 等效C代码
+d = a & b;
 
+// example
+and.b32  x,q,r;    
+and.b32  sign,fpvalue,0x80000000;
+```
 
+注意事项：
+1. 支持包含predicate register的所有数据类型
+2. 所有架构均支持
+3. PTX 1.0被引入
+
+#### 9.7.7.2. Logic and Shift Instructions: or
+位或指令，同：|
+
+```
+or.type d, a, b;
+.type = { .pred, .b16, .b32, .b64 };
+
+// 等效C代码
+d = a | b;
+
+// example
+or.b32  mask mask,0x00010001
+or.pred  p,q,r;
+```
+
+注意事项：
+同上
+
+#### 9.7.7.3. Logic and Shift Instructions: xor
+位异或，同：^
+
+```
+xor.type d, a, b;
+.type = { .pred, .b16, .b32, .b64 };
+
+// 等效C代码
+d = a ^ b;
+
+// example
+xor.b32  d,q,r;
+xor.b16  d,x,0x0001;
+```
+
+注意事项：
+同上
+
+#### 9.7.7.4. Logic and Shift Instructions: not
+位取反，同:!
+
+```
+not.type d, a;
+.type = { .pred, .b16, .b32, .b64 };
+
+// 等效C代码
+d = ~a;
+
+// example
+not.b32  mask,mask;
+not.pred  p,q;
+```
+
+注意事项：
+同上
+
+#### 9.7.7.5. Logic and Shift Instructions: cnot
+C\C++风格中的取反，主要用于生成0、1布尔值来判断非空
+
+```
+cnot.type d, a;
+.type = { .b16, .b32, .b64 };
+
+// 等效C代码
+d = (a==0) ? 1 : 0; 
+
+// example
+cnot.b32 d,a;
+```
+
+注意事项：
+同上
+
+#### 9.7.7.6. Logic and Shift Instructions: lop3
+对三个输入进行任意逻辑运算
+
+```
+lop3.b32 d, a, b, c, immLut;
+
+// 等效C代码
+ta = 0xF0; // predefined constant
+tb = 0xCC; // predefined constant
+tc = 0xAA; // predefined constant
+    
+immLut = F(ta, tb, tc);
+
+If F = (a & b & c);
+immLut = 0xF0 & 0xCC & 0xAA = 0x80
+
+If F = (a | b | c);
+immLut = 0xF0 | 0xCC | 0xAA = 0xFE
+
+If F = (a & b & ~c);
+immLut = 0xF0 & 0xCC & (~0xAA) = 0x40
+
+If F = ((a & b | c) ^ a);
+immLut = (0xF0 & 0xCC | 0xAA) ^ 0xF0 = 0x1A
+
+// example
+lop3.b32  d, a, b, c, 0x40;
+```
+
+这里immLut是一个经过查找表之后的结果，ta\tb\tc是一个常数，
+将ta\tb\tc三个数进行你所需要的组合位操作而得出的结果便是immLut的值。
+
+注意事项：
+1. 需要`sm_50`以上架构
+2. 在PTX 4.3中引入
+
+#### 9.7.7.7. Logic and Shift Instructions: shf
+直译过来是漏斗移位，我理解实际就是旋转移位，即左移抹掉的高位往低位顺补，右移抹掉的低位往高位顺补
+
+```
+shf.l.mode.b32  d, a, b, c;  // left shift
+shf.r.mode.b32  d, a, b, c;  // right shift
+.mode = { .clamp, .wrap };
+
+// 等效C代码
+u32  n = (.mode == .clamp) ? min(c, 32) : c & 0x1f;
+switch (shf.dir) {  // shift concatenation of [b, a]
+    case shf.l:     // extract 32 msbs
+           u32  d = (b << n)      | (a >> (32-n));
+    case shf.r:     // extract 32 lsbs
+           u32  d = (b << (32-n)) | (a >> n);
+}
+
+// example
+shf.l.clamp.b32  r3,r1,r0,16;
+
+// 128-bit left shift; n < 32
+// [r7,r6,r5,r4] = [r3,r2,r1,r0] << n
+shf.l.clamp.b32  r7,r2,r3,n;
+shf.l.clamp.b32  r6,r1,r2,n;
+shf.l.clamp.b32  r5,r0,r1,n;
+shl.b32          r4,r0,n;
+
+// 128-bit right shift, arithmetic; n < 32
+// [r7,r6,r5,r4] = [r3,r2,r1,r0] >> n
+shf.r.clamp.b32  r4,r0,r1,n;
+shf.r.clamp.b32  r5,r1,r2,n;
+shf.r.clamp.b32  r6,r2,r3,n;
+shr.s32          r7,r3,n;     // result is sign-extended
+
+shf.r.clamp.b32  r1,r0,r0,n;  // rotate right by n; n < 32
+shf.l.clamp.b32  r1,r0,r0,n;  // rotate left by n; n < 32
+
+// extract 32-bits from [r1,r0] starting at position n < 32
+shf.r.clamp.b32  r0,r0,r1,n;
+```
+
+上面个的例子已经说的比较明白了
+
+注意事项：
+1. 需要`sm_32`或更高的架构
+2. PTX 3.1b被引入
+
+#### 9.7.7.8. Logic and Shift Instructions: shl
+左移，在右边补零
+
+```
+shl.type d, a, b;
+.type = { .b16, .b32, .b64 };
+
+// 等效C代码
+d = a << b;
+
+// example
+shl.b32  q,a,2;
+```
+
+指令中，b必须是一个和32-bit的数，或者是立即数，并且移位N个bit位如果超过寄存器的位宽，则自动clamp到对应位宽
+
+注意事项：
+同9.7.7.1
+
+#### 9.7.7.9. Logic and Shift Instructions: shr
+右移，包含算数右移和逻辑右移
+
+```
+shr.type d, a, b;
+.type = { .b16, .b32, .b64,
+          .u16, .u32, .u64,
+          .s16, .s32, .s64 };
+
+// 等效C代码
+d = a >> b;
+
+// example
+shr.u16  c,a,2;
+shr.s32  i,i,1;
+shr.b16  k,i,j;
+```
+
+有符号类型会在左边补符号位，无符号类型会在左边补0， b依然需要32-bit数，与指令类型无关，bit-size类型处理也是补0
+
+注意事项：
+同上
+
+### 9.7.8. Data Movement and Conversion Instructions
+**接下来到了很重要的一章，关于数据转换和读写的指令，这个不单单操作寄存器了，相对更负责且可玩性更广。
+I\Od的优化也是HPC中很重要的一环，所以这章应该是划重点的章节。**
+
+TBD
 
 
 
