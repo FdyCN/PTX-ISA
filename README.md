@@ -2882,7 +2882,219 @@ shr.b16  k,i,j;
 **接下来到了很重要的一章，关于数据转换和读写的指令，这个不单单操作寄存器了，相对更负责且可玩性更广。
 I\Od的优化也是HPC中很重要的一环，所以这章应该是划重点的章节。**
 
-TBD
+#### 9.7.8.1. Cache Operators
+缓存的读写操作仅被视为性能提示，并不会改变内存一致性。
+
+从`sm_20`及以上，缓存操作具有如下的定义和行为
+
+缓存读取指令：
+![Table27](./images/table27.png)
+
+缓存写回指令：
+![Table28](./images/table28.png)
+
+#### 9.7.8.2. Cache Eviction Priority Hints
+从PTX 7.4开始，加入了可选的缓存退出优先级提示，用于缓存读写，需要`sm_70`以上架构。
+
+该提示只用于`.global`内存空间的地址。
+
+缓存读写的退出有优先级提示指令如下：
+![Table29](./images/table29.png)
+
+#### 9.7.8.3. Data Movement and Conversion Instructions: mov
+设置寄存器的值，源操作数可以是：寄存器变量、立即数、global\local\shared内存空间中的non-generic地址
+
+```
+mov.type  d, a;
+mov.type  d, sreg;
+mov.type  d, avar;       // get address of variable
+mov.type  d, avar+imm;   // get address of variable with offset
+mov.u32   d, fname;      // get address of device function
+mov.u64   d, fname;      // get address of device function
+mov.u32   d, kernel;     // get address of entry function
+mov.u64   d, kernel;     // get address of entry function
+
+.type = { .pred,
+          .b16, .b32, .b64,
+          .u16, .u32, .u64,
+          .s16, .s32, .s64,
+                .f32, .f64 };
+
+// 等效C代码
+d = a;
+d = sreg;
+d = &avar;  // address is non-generic; i.e., within the variable's declared state space
+d = &avar+imm;
+
+// example
+    mov.f32  d,a;
+    mov.u16  u,v;
+    mov.f32  k,0.1;
+    mov.u32  ptr, A;        // move address of A into ptr
+    mov.u32  ptr, A[5];     // move address of A[5] into ptr
+    mov.u32  ptr, A+20;     // move address with offset into ptr
+    mov.u32  addr, myFunc;  // get address of device function 'myFunc'
+    mov.u64  kptr, main;    // get address of entry function 'main'
+```
+
+注意上面提到了non-generic，当需要获取对应内存空间generic地址时，首先通过`mov`指令获取non-generic，然后通过`cvta`可以转换出generic。
+**总之想要获取generic便可以通过`cvta`指令来获取。**
+
+**到底什么时generic和non-generic？？**
+这个问题可以参考[NVVM IR](https://docs.nvidia.com/cuda/nvvm-ir-spec/index.html#generic-pointers-and-non-generic-pointers)中给出的解释。
+简单来说，generic pointer是指向任意地址空间的指针，而non-generic point是指向特定地址空间的指针。
+
+比如：函数指针就是non-generic pointer，有特性的地址空间关键字，而global\local\shared这种就是通用的地址空间。
+
+注意事项：
+1. mov指令增加了通用的数据类型(原本其实只需要bit-wise和predicate type便足够了)，是为了更好的可读性以及允许数据类型转换。
+2. 当mov一个kernel或者device函数时，只允许使用`.u32`和`.u64`指令类型。当使用signed type时并不会报编译错误，但会有warning，建议是不要这么搞
+3. 获取kernel地址的功能需要PTX 3.1以上，并且只能用于CUDA Dynamic Parallelism system calls
+4. `mov.f64`需要`sm_13`以上，获取kernel地址需要`sm_35`以上
+
+#### 9.7.8.4. Data Movement and Conversion Instructions: mov
+用于标量和矢量间的相互移动，也就是俗称的pack\unpack。是的，指令一样的，但是源操作数和目标操作数的形式不同。
+
+```
+mov.type  d, a;
+.type = { .b16, .b32, .b64 };
+
+// 等效C代码
+// pack two 8-bit elements into .b16
+d = a.x | (a.y << 8)
+// pack four 8-bit elements into .b32
+d = a.x | (a.y << 8)  | (a.z << 16) | (a.w << 24)
+// pack two 16-bit elements into .b32
+d = a.x | (a.y << 16)
+// pack four 16-bit elements into .b64
+d = a.x | (a.y << 16)  | (a.z << 32) | (a.w << 48)
+// pack two 32-bit elements into .b64
+d = a.x | (a.y << 32)
+
+// unpack 8-bit elements from .b16
+{ d.x, d.y } = { a[0..7], a[8..15] }
+// unpack 8-bit elements from .b32
+{ d.x, d.y, d.z, d.w } 
+    { a[0..7], a[8..15], a[16..23], a[24..31] }
+
+// unpack 16-bit elements from .b32
+{ d.x, d.y }  = { a[0..15], a[16..31] }
+// unpack 16-bit elements from .b64
+{ d.x, d.y, d.z, d.w } =
+    { a[0..15], a[16..31], a[32..47], a[48..63] }
+ 
+// unpack 32-bit elements from .b64
+{ d.x, d.y } = { a[0..31], a[32..63] }
+
+// example
+// 源操作数和目标操作数的形式不一样
+mov.b32 %r1,{a,b};      // a,b have type .u16
+mov.b64 {lo,hi}, %x;    // %x is a double; lo,hi are .u32
+mov.b32 %r1,{x,y,z,w};  // x,y,z,w have type .b8
+mov.b32 {r,g,b,a},%r1;  // r,g,b,a have type .u8
+// 当存在"_"可以理解为一个占位符，实际后续代码可能只需要用到%r1这个矢量寄存器
+mov.b64 {%r1, _}, %x;   // %x is.b64, %r1 is .b32
+```
+
+指令的type位宽对应的是最大位宽。
+
+注意事项：
+1. PTX 1.0引入
+2. 适用于所有架构
+
+#### 9.7.8.5. Data Movement and Conversion Instructions: shfl (deprecated)
+warp中的线程交换寄存器数据。
+
+注意事项：
+1. 该指令在PTX6.0被弃用，PTX 6.4以及`sm_70`以上便不再支持
+2. 从PTX 6.0开始引入了`shfl.sync`指令替代
+
+
+#### 【WIP】9.7.8.6. Data Movement and Conversion Instructions: shfl.sync
+warp中的线程交换寄存器数据。
+
+```
+shfl.sync.mode.b32  d[|p], a, b, c, membermask;
+.mode = { .up, .down, .bfly, .idx };
+
+// 等效C代码
+// wait for all threads in membermask to arrive
+wait_for_specified_threads(membermask);
+
+lane[4:0]  = [Thread].laneid;  // position of thread in warp
+bval[4:0] = b[4:0];            // source lane or lane offset (0..31)
+cval[4:0] = c[4:0];            // clamp value
+segmask[4:0] = c[12:8];
+
+// get value of source register a if thread is active and
+// guard predicate true, else unpredictable
+if (isActive(Thread) && isGuardPredicateTrue(Thread)) {
+    SourceA[lane] = a;
+} else {
+    // Value of SourceA[lane] is unpredictable for
+    // inactive/predicated-off threads in warp
+}
+maxLane = (lane[4:0] & segmask[4:0]) | (cval[4:0] & ~segmask[4:0]);
+minLane = (lane[4:0] & segmask[4:0]);
+
+switch (.mode) {
+    case .up:    j = lane - bval; pval = (j >= maxLane); break;
+    case .down:  j = lane + bval; pval = (j <= maxLane); break;
+    case .bfly:  j = lane ^ bval; pval = (j <= maxLane); break;
+    case .idx:   j = minLane  | (bval[4:0] & ~segmask[4:0]);
+                                 pval = (j <= maxLane); break;
+}
+if (!pval) j = lane;  // copy from own lane
+d = SourceA[j];       // copy input a from lane j
+if (dest predicate selected)
+    p = pval;
+
+// example
+shfl.sync.up.b32  Ry|p, Rx, 0x1,  0x0, 0xffffffff;
+```
+
+其中：
+1. membermask是一个32-bit的数，每个bit位对应32个lane-id, bit位为1则表示该lane-id是参与shlf的，为0的线程不参与并且行为是未定义。
+2. **细节没太看懂，后续再回头填坑**
+
+注意事项:
+1. 在PTX 6.0被引入
+2. 需要`sm_30`以上架构
+
+#### 9.7.8.7. Data Movement and Conversion Instructions: prmt
+改变寄存器pair中的Byte位置。
+
+```
+prmt.b32{.mode}  d, a, b, c;
+.mode = { .f4e, .b4e, .rc8, .ecl, .ecr, .rc16 };
+
+// 等效C代码
+tmp64 = (b<<32) | a;  // create 8 byte source
+
+if ( ! mode ) {
+   ctl[0] = (c >>  0) & 0xf;
+   ctl[1] = (c >>  4) & 0xf;
+   ctl[2] = (c >>  8) & 0xf;
+   ctl[3] = (c >> 12) & 0xf;
+} else {
+   ctl[0] = ctl[1] = ctl[2] = ctl[3] = (c >>  0) & 0x3;
+}
+
+tmp[07:00] = ReadByte( mode, ctl[0], tmp64 );
+tmp[15:08] = ReadByte( mode, ctl[1], tmp64 );
+tmp[23:16] = ReadByte( mode, ctl[2], tmp64 );
+tmp[31:24] = ReadByte( mode, ctl[3], tmp64 );
+
+// example
+prmt.b32      r1, r2, r3, r4;
+prmt.b32.f4e  r1, r2, r3, r4;
+```
+
+
+
+
+
+
 
 
 
