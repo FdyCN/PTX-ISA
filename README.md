@@ -3062,7 +3062,7 @@ shfl.sync.up.b32  Ry|p, Rx, 0x1,  0x0, 0xffffffff;
 2. 需要`sm_30`以上架构
 
 #### 9.7.8.7. Data Movement and Conversion Instructions: prmt
-改变寄存器pair中的Byte位置。
+改变寄存器pair中的Byte位置。两个b32的源操作数中提取出一个b32目标操作数
 
 ```
 prmt.b32{.mode}  d, a, b, c;
@@ -3090,8 +3090,162 @@ prmt.b32      r1, r2, r3, r4;
 prmt.b32.f4e  r1, r2, r3, r4;
 ```
 
+源操作数c是一个16bit的选择器，每4-bit控制目标操作数的一个字节的选择。
+![Table30](./images/table30.png)
 
+拥有的模式如下：
+![Table31](./images/table31.png)
 
+注意事项：
+1. PTX 2.0中被引入
+2. 需要`sm_20`架构以上
+
+#### 9.7.8.8. Data Movement and Conversion Instructions: ld
+从可寻址空间读取变量放入寄存器。
+**很重要的指令**
+
+```
+// 指令用法：
+ld{.weak}{.ss}{.cop}{.level::cache_hint}{.level::prefetch_size}{.vec}.type  d, [a]{, cache-policy};
+ld{.weak}{.ss}{.level::eviction_priority}{.level::cache_hint}{.level::prefetch_size}{.vec}.type
+                                                                            d, [a]{, cache-policy};
+
+ld.volatile{.ss}{.level::prefetch_size}{.vec}.type                          d, [a];
+ld.relaxed.scope{.ss}{.level::eviction_priority}{.level::cache_hint}{.level::prefetch_size}{.vec}.type
+                                                                            d, [a]{, cache-policy};
+
+ld.acquire.scope{.ss}{.level::eviction_priority}{.level::cache_hint}{.level::prefetch_size}{.vec}.type
+                                                                            d, [a]{, cache-policy};
+
+.ss =                       { .const, .global, .local, .param, .shared{::cta, ::cluster} };
+.cop =                      { .ca, .cg, .cs, .lu, .cv };
+.level::eviction_priority = { .L1::evict_normal, .L1::evict_unchanged,
+                              .L1::evict_first, .L1::evict_last, .L1::no_allocate };
+.level::cache_hint =        { .L2::cache_hint };
+.level::prefetch_size =     { .L2::64B, .L2::128B, .L2::256B }
+.scope =                    { .cta, .cluster, .gpu, .sys };
+.vec =                      { .v2, .v4 };
+.type =                     { .b8, .b16, .b32, .b64,
+                              .u8, .u16, .u32, .u64,
+                              .s8, .s16, .s32, .s64,
+                              .f32, .f64 };
+```
+
+指令描述：
+1. d为目标操作数，a为标注地址空间的源操作数，如果地址空间没标注，则默认按照generic addressing进行寻址
+2. 如果`.shared`没有明确的子描述符，那么默认使用`::cta`子描述符
+3. 支持的寻址方式以及需要的对齐大小参考6.4.1章节
+4. `ld.param`用于读取device function的返回值，具体参考5.6和7.1章节
+5. `.relax`和`.acquir`修饰符表示内存的同步性，参考第8章的内存一致性模型，`.scope`描述符表示使用`ld.relax`或`ld.acquire`的线程集合可以直接进行同步
+6. `.weak`描述符表示这是一条没有同步的内存指令，这条指令只有同步之后，其产生的影响才能对其他线程可见。
+7. `.weak`，`.volatile`，`.relaxed`，`.acquire`是互斥的描述符，如果没有标注，默认使用`.weak`
+8. `ld.volatile`操作总是会被执行，并且有访问同一地址的其他volatile操作时，不会被重排。volatile和non-volatile操作同一块内存时，可能会被重拍。`ld.volatile`和`ld.relax.sys`有着相同的同步语义。
+9. `.volatile`、`.relaxed`、`.acquire`关键字只能用于global和shared空间的generic address，cache不行。
+10. `.level::eviction_priority`用于指定在内存访问期间使用的退出策略。
+11. `.level::prefetch_size`用于提示将指定的数据获取到对应的cache-level，可以选在64\128\256B，B for byte.
+12. `.level::prefetch_size`只能用于global内存，如果prefetch的地址不在全局内存窗口内，则该行为未定义。
+13. `.level::prefetch_size`指挥被视为一种性能提示，performance hint
+14. 当使用可选的参数`cache-policy`时，关键字`.level::cache_hint`是必须的，一个64-bit操作数作为`cache-policy`表明在内存访问时的缓存退出策略。
+15. `.level::cache_hint`只支持global内存空间的访问。
+16. `cache-policy`也是一个性能提示，并不能保证被执行，并且不会盖面内存一致性。
+
+```
+// example
+ld.global.f32    d,[a];
+ld.shared.v4.b32 Q,[p];
+ld.const.s32     d,[p+4];
+ld.local.b32     x,[p+-8]; // negative offset
+ld.local.b64     x,[240];  // immediate address
+
+ld.global.b16    %r,[fs];  // load .f16 data into 32-bit reg
+cvt.f32.f16      %r,%r;    // up-convert f16 data to f32
+
+ld.global.b32    %r0, [fs];     // load .f16x2 data in 32-bit reg
+ld.global.b32    %r1, [fs + 4]; // load .f16x2 data in 32-bit reg
+add.rn.f16x2     %d0, %r0, %r1; // addition of f16x2 data
+ld.global.relaxed.gpu.u32 %r0, [gbl];
+ld.shared.acquire.gpu.u32 %r1, [sh];
+ld.global.relaxed.cluster.u32 %r2, [gbl];
+ld.shared::cta.acquire.gpu.u32 %r2, [sh + 4];
+ld.shared::cluster.u32 %r3, [sh + 8];
+
+ld.global.L1::evict_last.u32  d, [p];
+
+ld.global.L2::64B.b32   %r0, [gbl]; // Prefetch 64B to L2
+ld.L2::128B.f64         %r1, [gbl]; // Prefetch 128B to L2
+ld.global.L2::256B.f64  %r2, [gbl]; // Prefetch 256B to L2
+
+createpolicy.fractional.L2::evict_last.L2::evict_unchanged.b64 cache-policy, 1;
+ld.global.L2::cache_hint.b64  x, [p], cache-policy;
+```
+
+注意事项：
+1. 目标操作数必须是寄存器，在`.reg`内存空间
+2. 当目标寄存器的位宽大于被标注的位宽时时可用的，默认会对有符号类型进行高位补符号位，无符号类型和bit类型高位补0。
+3. `.f16`类型不能直接标注，可以先用`ld.b16`进行读取，在使用`cvt`指令转换为fp32或者fp64。
+4. `.f16x2`可以使用`ld.b32`指令进行读取。
+
+PTX版本特性：
+1. ld指令在PTX1.0引入，`ld.volatile`在1.1引入
+2. generic address和cache操作在2.0引入
+3. 作用域限定符`.relax`，`.acquire`、`.weak`在6.0引入
+4. const空间的generic address寻址在3.1引入
+5. `.level::eviction_priority`、`.level::prefetch_size`、`.level::cache_hint`在7.4被引入
+6. `.cluster`作用域限定符在7.8被引入
+7. `::cta`和`::cluster`子限定符在7.8被引入。
+
+目标架构特性：
+1. `ld.f64`需要`sm_13`以上
+2. `.relax`，`.acquire`、`.weak`需要`sm_70`以上
+3. generic address和cache操作需要`sm_20`以上
+4. `.level::eviction_priority`需要70以上
+5. `.level::prefetch_size`需要75以上
+6. `.L2::256B`和`.L2::cache_hint`需要80以上
+7. `.cluster`需要90以上
+8. `::cta`需要30以上
+9. `::cluster`需要90以上
+
+#### 9.7.8.9. Data Movement and Conversion Instructions: ld.global.nc
+通过非相干(non-coherent)缓存从全局内存空间读取数据到寄存器。
+
+```
+ld.global{.cop}.nc{.level::cache_hint}.type                 d, [a]{, cache-policy};
+ld.global{.cop}.nc{.level::cache_hint}.vec.type             d, [a]{, cache-policy};
+
+ld.global.nc{.level::eviction_priority}{.level::cache_hint}.type      d, [a]{, cache-policy};
+ld.global.nc{.level::eviction_priority}{.level::cache_hint}.vec.type  d, [a]{, cache-policy};
+
+.cop  =                     { .ca, .cg, .cs };     // cache operation
+.level::eviction_priority = { .L1::evict_normal, .L1::evict_unchanged,
+                              .L1::evict_first, .L1::evict_last, .L1::no_allocate};
+.level::cache_hint =        { .L2::cache_hint };
+.vec  =                     { .v2, .v4 };
+.type =                     { .b8, .b16, .b32, .b64,
+                              .u8, .u16, .u32, .u64,
+                              .s8, .s16, .s32, .s64,
+                              .f32, .f64 };
+
+// example
+ld.global.nc.f32           d, [a];
+ld.gloal.nc.L1::evict_last.u32 d, [a];        
+
+createpolicy.fractional.L2::evict_last.b64 cache-policy, 0.5;
+ld.global.nc.L2::cache_hint.f32  d, [a], cache-policy;
+```
+
+上述example中出现的`createpolicy`指令在后面章节。
+
+什么是non-coherent cache？
+通常是只不想管的texture cache，因为这部分cache是non-coherent cache，所以这部分是只读的cache。
+注意：通常texture cache更大，并且有更大的带宽，但是相比于global memory cache有更大的延迟。`ld.global.nc`通常比`ld.global`性能更好。
+
+指令中涉及的`.level::eviction_priority`、`.level::cache_hint`等限定符和ld指令相同，不赘述。
+
+注意事项：
+1. 该指令在PTX 3.1被引入。
+2. 限定符支持同ld指令。
+
+#### 9.7.8.10. Data Movement and Conversion Instructions: ldu
 
 
 
