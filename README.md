@@ -3246,9 +3246,233 @@ ld.global.nc.L2::cache_hint.f32  d, [a], cache-policy;
 2. 限定符支持同ld指令。
 
 #### 9.7.8.10. Data Movement and Conversion Instructions: ldu
+从一个warpz中的共同地址进行read-only数据读取
 
+```
+ldu{.ss}.type      d, [a];       // load from address
+ldu{.ss}.vec.type  d, [a];       // vec load from address
 
+.ss   = { .global };             // state space
+.vec  = { .v2, .v4 };
+.type = { .b8, .b16, .b32, .b64,
+           .u8, .u16, .u32, .u64,
+           .s8, .s16, .s32, .s64,
+                      .f32, .f64 };
 
+// example
+ldu.global.f32    d,[a];
+ldu.global.b32    d,[p+4];
+ldu.global.v4.f32 Q,[p];
+```
+
+从源操作地址进行global内存空间的read-only数据读取，源操作地址必须保证对warp中的所有线程都是一样的。
+`.f16`数据读取需要使用`ldu.b16`然后使用`cvt`指令转换到`.f32`或`.f64`或者用于其他半精度浮点指令中。
+
+注意事项：
+1. PTX 2.0被引入
+2. `ldu.f64`需要`sm_13`以上
+
+#### 9.7.8.11. Data Movement and Conversion Instructions: st
+存储寄存器变量到一个可寻址的内存空间中
+
+```
+st{.weak}{.ss}{.cop}{.level::cache_hint}{.vec}.type   [a], b{, cache-policy};
+st{.weak}{.ss}{.level::eviction_priority}{.level::cache_hint}{.vec}.type
+                                                      [a], b{, cache-policy};
+st.volatile{.ss}{.vec}.type                           [a], b;
+st.relaxed.scope{.ss}{.level::eviction_priority}{.level::cache_hint}{.vec}.type
+                                                      [a], b{, cache-policy};
+st.release.scope{.ss}{.level::eviction_priority}{.level::cache_hint}{.vec}.type
+                                                      [a], b{, cache-policy};
+
+.ss =                       { .global, .local, .param, .shared{::cta, ::cluster} };
+.level::eviction_priority = { .L1::evict_normal, .L1::evict_unchanged,
+                              .L1::evict_first, .L1::evict_last, .L1::no_allocate };
+.level::cache_hint =        { .L2::cache_hint };
+.cop =                      { .wb, .cg, .cs, .wt };
+.sem =                      { .relaxed, .release };
+.scope =                    { .cta, .cluster, .gpu, .sys };
+.vec =                      { .v2, .v4 };
+.type =                     { .b8, .b16, .b32, .b64,
+                              .u8, .u16, .u32, .u64,
+                              .s8, .s16, .s32, .s64,
+                              .f32, .f64 };
+
+// example
+st.global.f32    [a],b;
+st.local.b32     [q+4],a;
+st.global.v4.s32 [p],Q;
+st.local.b32     [q+-8],a; // negative offset
+st.local.s32     [100],r7; // immediate address
+
+cvt.f16.f32      %r,%r;    // %r is 32-bit register
+st.b16           [fs],%r;  // store lower
+st.global.relaxed.sys.u32 [gbl], %r0;
+st.shared.release.cta.u32 [sh], %r1;
+st.global.relaxed.cluster.u32 [gbl], %r2;
+st.shared::cta.release.cta.u32 [sh + 4], %r1;
+st.shared::cluster.u32 [sh + 8], %r1;
+
+st.global.L1::no_allocate.f32 [p], a;
+
+createpolicy.fractional.L2::evict_last.b64 cache-policy, 0.25;
+st.global.L2::cache_hint.b32  [a], b, cache-policy;
+```
+
+指令描述：
+1. 基本和`ld`指令是一样的，反过来看就行。
+
+注意事项：
+1. 同`ld`指令
+
+#### 9.7.8.12. Data Movement and Conversion Instructions: prefetch, prefetchu
+在指定的内存空间中，对指定的内存层次中的generic address进行预取
+
+```
+prefetch{.space}.level                    [a];   // prefetch to data cache
+prefetch.global.level::eviction_priority  [a];   // prefetch to data cache
+
+prefetchu.L1  [a];             // prefetch to uniform cache
+
+.space =                    { .global, .local };
+.level =                    { .L1, .L2 };
+.level::eviction_priority = { .L2::evict_last, .L2::evict_normal };
+
+// example
+prefetch.global.L1             [ptr];
+prefetch.global.L2::evict_last [ptr];          
+prefetchu.L1  [addr];
+```
+
+指令描述：
+1. 预取指令将从global\local内存空间中取cache-line宽的数据放到指定的cache level中
+2. 对于shared memory的预取指令不执行任何操作
+3. 放入统一缓存的prefetchzhi零需要一个generic address，并且对于映射到`const`、`local`和`shared`空间的地址，不会执行任何操作
+
+注意事项：
+1. PTX 2.0被引入
+2. `prefetch`指令需要`sm_20`以上
+3. 其余的一些描述符需求同上
+
+#### 9.7.8.13. Data Movement and Conversion Instructions: applypriority
+在对应的cache level和对应的address，应用对应的缓存退出优先级
+
+```
+appplypriority{.global}.level::eviction_priority  [a], size;
+
+.level::eviction_priority = { .L2::evict_normal };
+
+// example
+applypriority.global.L2::evict_normal [ptr], 128;
+```
+
+指令描述：
+1. 当前可支持的size数是128
+2. 源操作数a必须是128Bytes对齐的
+3. 如果地址a所指向的数据还没有出现在指定的缓存级别中，那么在应用指定的优先级之前，数据将被预取。
+
+注意事项：
+1. PTX 7.4引入
+2. 需要`sm_80`以上的架构
+
+#### 9.7.8.14. Data Movement and Conversion Instructions: discard
+在指定的地址和缓存级别使缓存中的数据无效。
+
+```
+discard{.global}.level  [a], size;
+
+.level = { .L2 };
+
+// example
+discard.global.L2 [ptr], 128;
+```
+
+指令描述：
+1. 将缓存中[a, a+size)段的数据无效，但并不会将数据写回内存，也就是缓存擦除
+2. size只支持128
+3. 源操作数a需要128Byte对齐
+
+注意事项：
+1. PTX 7.4引入
+2. 需要`sm_80`以上架构
+
+#### 9.7.8.15. Data Movement and Conversion Instructions: createpolicy
+对指定的缓存等级创建缓存退出优先级
+
+```
+// Range-based policy
+createpolicy.range{.global}.level::primary_priority{.level::secondary_priority}.b64
+                                   cache-policy, [a], primary-size, total-size;
+
+// Fraction-based policy
+createpolicy.fractional.level::primary_priority{.level::secondary_priority}.b64
+                                   cache-policy{, fraction};
+
+// Converting the access property from CUDA APIs
+createpolicy.cvt.L2.b64            cache-policy, access-property;
+
+.level::primary_priority =   { .L2::evict_last, .L2::evict_normal,
+                               .L2::evict_first, .L2::evict_unchanged };
+.level::secondary_priority = { .L2::evict_first, .L2::evict_unchanged };
+
+// example
+createpolicy.fractional.L2::evict_last.b64                      policy, 1.0;
+createpolicy.fractional.L2::evict_last.L2::evict_unchanged.b64  policy, 0.5;
+
+createpolicy.range.L2::evict_last.L2::evict_first.b64
+                                            policy, [ptr], 0x100000, 0x200000;
+
+// access-prop is created by CUDA APIs.
+createpolicy.cvt.L2.b64 policy, access-prop;
+```
+
+指令描述：
+1. 该指令创建一个缓存推出优先级的值放在一个64-bit的寄存器中，这个寄存器搭配前文的`ld`、`st`等指令一起使用，所以暂时不用关心这个64bit到底怎么表示
+2. 有两种缓存退出的策略：
+- Range-based policy: 
+    - [a, a + primary_size)称为primary range
+    - [a + primary_size, a + total_size)称为trailing secondary range
+    - [a - (total_size - primary_size), a)称为preceding secondary range
+    - 当内存地址落在primary range中，退出优先级被标注为`.L2::primary_priority`
+    - 当内存地址落在任意的secondary range中，退出优先级被标注为`.L2::secondary_priority`
+    - `primary-size`和`total-size`都是32-bit的数，并且前者必须小于等于后者，最大的`total-size`是4GB，默认模式为`.L12::evict_unchanged`
+- Fraction-base policy
+    - [软件直译的]带有`.level::cache_hint`限定符的内存操作可以使用基于分数的缓存清除策略来请求由`.L2:primary_priority`指定的缓存清除优先级应用于由32-bit浮点操作数分数指定的缓存访问的分数。剩余的缓存访问获得`.L2::secondary_priority`指定的退出优先级。这意味着，在使用基于分数的缓存策略的内存操作中，内存访问具有获得`.L2::primary_priority`指定的缓存退出优先级的操作数分数指定的概率。操作数分数的有效取值范围是(0.0，…, 1.0]。如果未指定操作数分数，则默认为1.0。如果未指定`.L2::secondary_priority`，则默认为`.L2::evict_unchanged`
+
+注意事项：
+1. PTX 7.4引入
+2. 需要`sm_80`架构及以上
+
+#### 9.7.8.16. Data Movement and Conversion Instructions: isspacep
+查询是否一个generic address在指定的内存空间窗口中
+
+```
+isspacep.space  p, a;    // result is .pred
+
+.space = { const, .global, .local, .shared{::cta, ::cluster}, .param };
+
+// example 
+isspacep.const           iscnst, cptr;
+isspacep.global          isglbl, gptr;
+isspacep.local           islcl,  lptr;
+isspacep.shared          isshrd, sptr;
+isspacep.param           isparam, pptr;
+isspacep.shared::cta     isshrdcta, sptr;
+isspacep.shared::cluster ishrdany sptr;
+```
+
+指令描述：
+1. 目标操作数类型为`.pred`，源操作数类型必须是`.u32`或`.u64`，如果在查询的内存空间，则目标操作数为1，反之为0
+2. `isspacep.param`判断generic address是否来自kernel function parameters
+3. 如果没有标注`.shared`，则默认`::cta`
+
+注意事项：
+1. PTX 2.0引入，需要`sm_20`以上的架构
+2. `isspacep.const`在PTX 3.1引入
+3. `isspacep.param`在PTX 7.7引入，需要`sm_70`以上架构
+4. `::cta`和`::cluster`在PTX 7.8引入，前者需要`sm_30`以上架构，后者需要`sm_90`以上架构
+
+#### 9.7.8.17. Data Movement and Conversion Instructions: cvta
 
 
 
