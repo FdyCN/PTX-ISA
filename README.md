@@ -3473,9 +3473,522 @@ isspacep.shared::cluster ishrdany sptr;
 4. `::cta`和`::cluster`在PTX 7.8引入，前者需要`sm_30`以上架构，后者需要`sm_90`以上架构
 
 #### 9.7.8.17. Data Movement and Conversion Instructions: cvta
+各种内存空间中的指针与generic address之间的相互转换
+
+```
+// convert const, global, local, or shared address to generic address
+cvta.space.size  p, a;        // source address in register a
+cvta.space.size  p, var;      // get generic address of var
+cvta.space.size  p, var+imm;  // generic address of var+offset
+
+// convert generic address to const, global, local, or shared address
+cvta.to.space.size  p, a;
+
+.space = { .const, .global, .local, .shared{::cta, ::cluster}, .param };
+.size  = { .u32, .u64 };
+
+// example
+cvta.const.u32   ptr,cvar;
+cvta.local.u32   ptr,lptr;
+cvta.shared::cta.u32  p,As+4;
+cvta.shared::cluster.u32 ptr, As;
+cvta.to.global.u32  p,gptr;
+cvta.param.u64   ptr,pvar;
+```
+
+指令描述：
+1. 指令的源操作数和目标操作数的位宽必须一致。否则`cvt.u32.u64`和`cvt.u64.u32`会发生阶段或高位补零。
+2. 将generic address转换为内存空间指针，如果该地址没有落在对应的内存空间，则行为是未定义的。通常需要先使用`isspacep`来保证内存空间正确
+3. `ctva`搭配`.shared`内存空间，地址必须被标注为`::cta`或者`::cluster`，否则行为未定义。默认为`::cta`。
+
+注意事项：
+1. PTX 2.0引入，需要`sm_20`以上架构
+2. `cvta.const`和`cvta.to.const`在PTX 3.1引入
+3. `.param`相关标注符在PTX 7.7被引入(7.8的手册中备注：当前事项不允许指向const的generic pointer包含指向constant bufferd的指针被作为kernel 参数传入)
+4. `::cta`和`::cluster`相关描述符在PTX 7.8被引入
+5. `.param`需要`sm_70`以上，`::cta`需要`sm_30`以上，`::cluster`需要`sm_90`以上
+
+#### 9.7.8.18. Data Movement and Conversion Instructions: cvt
+将一个值转换类型
+
+```
+cvt{.irnd}{.ftz}{.sat}.dtype.atype      d, a;  // integer rounding
+cvt{.frnd}{.ftz}{.sat}.dtype.atype      d, a;  // fp rounding
+cvt.frnd2{.relu}.f16.f32                d, a;
+cvt.frnd2{.relu}.f16x2.f32              d, a, b;
+cvt.frnd2.relu.bf16.f32                 d, a;
+cvt.frnd2{.relu}.bf16x2.f32             d, a, b;
+cvt.rna.tf32.f32                        d, a;
+cvt.frnd2{.relu}.tf32.f32               d, a;
+cvt.rn.satfinite{.relu}.f8x2type.f32    d, a, b;
+cvt.rn.satfinite{.relu}.f8x2type.f16x2  d, a;
+cvt.rn.{.relu}.f16x2.f8x2type           d, a;
+
+.irnd   = { .rni, .rzi, .rmi, .rpi };
+.frnd   = { .rn,  .rz,  .rm,  .rp  };
+.frnd2  = { .rn,  .rz };
+.dtype = .atype = { .u8,   .u16, .u32, .u64,
+                    .s8,   .s16, .s32, .s64,
+                    .bf16, .f16, .f32, .f64 };
+.f8x2type = { .e4m3x2, .e5m2x2 }; // 注意这里有hopper架构引入的两种fp8精度
+
+// 等效C代码
+if (/* inst type is .f16x2 or .bf16x2 */) {
+    d[31:16] = convert(a);
+    d[15:0]  = convert(b);
+} else {
+    d = convert(a);
+}
+
+// example
+cvt.f32.s32 f,i;
+cvt.s32.f64 j,r;     // float-to-int saturates by default
+cvt.rni.f32.f32 x,y; // round to nearest int, result is fp
+cvt.f32.f32 x,y;     // note .ftz behavior for sm_1x targets
+cvt.rn.relu.f16.f32      b, f;        // result is saturated with .relu saturation mode
+cvt.rz.f16x2.f32         b1, f, f1;   // convert two fp32 values to packed fp16 outputs
+cvt.rn.relu.f16x2.f32    b1, f, f1;   // convert two fp32 values to packed fp16 outputs with .relu saturation on each output
+cvt.rn.bf16.f32          b, f;        // convert fp32 to bf16
+cvt.rz.relu.bf16.f3 2    b, f;        // convert fp32 to bf16 with .relu saturation
+cvt.rz.bf16x2.f32        b1, f, f1;   // convert two fp32 values to packed bf16 outputs
+cvt.rn.relu.bf16x2.f32   b1, f, f1;   // convert two fp32 values to packed bf16 outputs with .relu saturation on each output
+cvt.rna.tf32.f32         b1, f;       // convert fp32 to tf32 format
+cvt.rn.relu.tf32.f32     d, a;        // convert fp32 to tf32 format
+cvt.f64.bf16.rp          f, b;        // convert bf16 to f64 format
+cvt.bf16.f16.rz          b, f         // convert f16 to bf16 format
+cvt.bf16.u64.rz          b, u         // convert u64 to bf16 format  
+cvt.s8.bf16.rpi          s, b         // convert bf16 to s8 format
+cvt.bf16.bf16.rpi        b1, b2       // convert bf16 to corresponding int represented in bf16 format
+cvt.rn.satfinite.e4m3x2.f32 d, a, b;  // convert a, b to .e4m3 and pack as .e4m3x2 output
+cvt.rn.relu.satfinite.e5m2x2.f16x2 d, a; // unpack a and convert the values to .e5m2 outputs with .relu 
+                                            // saturation on each output and pack as .e5m2x2
+cvt.rn.f16x2.e4m3x2 d, a;             // unpack a, convert two .e4m3 values to packed f16x2 output
+```
+
+指令说明：
+1. 舍入模式会强制发生在如下几种情况：
+     1. float2float,当目标操作数位宽小于源操作数
+     2. 所有float2int转换
+     3. 所有int2float转化
+     4. 所有包含`.fp16x2`，`.e4m3x2, .e5m2x2,.bf16x2,.tf32`的指令类型
+2. 整形舍入只能用于float2int转换，以及同位宽的float2float转换且中间值会舍入到整数然后变为浮点数
+3. 整形舍入模式有：
+     1. `.rni`：舍入到最近的整数，如果在两个数中间，则选择最近的偶数
+     2. `.rzi`：向0方向舍入到最近的整数
+     3. `.rmi`: 向负无穷方向舍入到最近的整数
+     4. `.rpi`: 向正无穷方向舍入到最近的整数
+     5. 在float2int的转换中，`NaN`会被转换为0
+4. 关于饱和处理：
+     1. `.sat`：对于浮点目标类型，`.sat`把结果限制在[0.0,1.0]的范围内,`NaN`的结果将会变为+0，可被用于`.f16,.f32, .f64`类型
+     2. `.relu`: 对于`.f16, .f16x2, .bf16, .bf16x2, .e4m3x23, .e5m2x2, .tf32`的目标类型，`.relu`的作用就是将负数变为0,NaN则会转换为标准的NaN
+     3. `.satfinite`：对于`.e4m3x2, .e5m2x2`的目标类型，NaN会被转换为特定目标格式的NaN
 
 
+注意事项：
+（直接上图吧，不想敲了...）
+![image_tmp](./images/image_tmp.png)
 
+
+#### 9.7.8.19. Data Movement and Conversion Instructions: cvt.pack
+将两个整型值从一种类型转换到另一种类型并打包
+
+````
+cvt.pack.sat.convertType.abType  d, a, b;
+    .convertType  = { .u16, .s16 }
+    .abType       = { .s32 }
+
+cvt.pack.sat.convertType.abType.cType  d, a, b, c;
+    .convertType  = { .u2, .s2, .u4, .s4, .u8, .s8 } 
+    .abType       = { .s32 }
+    .cType        = { .b32 }
+    
+// 等效C代码
+ta = a < MIN(convertType) ? MIN(convertType) : a;
+ta = a > MAX(convertType) ? MAX(convertType) : a;
+tb = b < MIN(convertType) ? MIN(convertType) : b;
+tb = b > MAX(convertType) ? MAX(convertType) : b;
+
+size = sizeInBits(convertType);
+td = tb ;
+for (i = size; i <= 2 * size - 1; i++) {
+    td[i] = ta[i - size];
+}
+
+if (isU16(convertType) || isS16(convertType)) {
+    d = td;
+} else {
+    for (i = 0; i < 2 * size; i++) {
+        d[i] = td[i];
+    }
+    for (i = 2 * size; i <= 31; i++) {
+        d[i] = c[i - 2 * size];
+    }
+}
+
+// example
+cvt.pack.sat.s16.s32      %r1, %r2, %r3;           // 32-bit to 16-bit conversion
+cvt.pack.sat.u8.s32.b32   %r4, %r5, %r6, 0;        // 32-bit to 8-bit conversion
+cvt.pack.sat.u8.s32.b32   %r7, %r8, %r9, %r4;      // %r7 = { %r5, %r6, %r8, %r9 }
+cvt.pack.sat.u4.s32.b32   %r10, %r12, %r13, %r14;  // 32-bit to 4-bit conversion
+cvt.pack.sat.s2.s32.b32   %r15, %r16, %r17, %r18;  // 32-bits to 2-bit conversion
+````
+
+指令描述：
+1. 转换的源操作数`a`和`b`都是s32的数据
+2. 当a和b转换之后的数据不足以完全pack赛满d的时候，a\b会被优先pack到d的低bit位
+3. 当存在操作数c的时候，如果还有没有被pack满的bit位，则会将c的低bit位塞入到d没被塞满的bit位中
+4. `.sat`标注符限制了转换的源操作数落在min(convertType, max(convertType, a))的区间，防止溢出发生
+
+注意事项：
+1. PTX 6.5引入
+2. 需要`sm_72`以上的架构
+3. 子类型`.u4/.s4/.u2/.s2`需要`sm_75`以上的架构
+
+#### 9.7.8.20. Data Movement and Conversion Instructions: mapa
+map出目标CTA中的共享变量地址
+
+````
+mapa{.space}.type          d, a, b;
+
+// Maps shared memory address in register a into CTA b.
+mapa.shared::cluster.type  d, a, b; 
+
+// Maps shared memory variable into CTA b.
+maps.shared::cluster.type  d, sh, b; 
+
+// Maps shared memory variable into CTA b.
+maps.shared::cluster.type  d, sh + imm, b; 
+
+// Maps generic address in register a into CTA b.
+mapa.type                  d, a, b; 
+
+.space = { .shared::cluster }
+.type  = { .u32, .u64 }
+
+// example
+mapa.shared::cluster.u64 d1, %reg1, cta;
+mapa.shared::cluster.u32 d2, sh, 3;
+mapa.u64                 d3, %reg2, cta;
+````
+
+指令描述：
+1. 获取操作数b指定的CTA中的地址，该地址对应于操作数a指定的地址。
+2. `.type`指定的是操作数a和b的数据类型
+3. 当内存空间被标注位`.shared::cluster`的时候，源操作数是一个共享内存变量或者是一个包含共享内存地址的寄存器，而d包含的是一个共享内存地址。而当`.space`没有被指明是，a和d都是包含指向共享内存的generic address的寄存器
+4. b是一个32-bit整型数据，表明目标CTA的id
+
+注意事项：
+1. PTX 7.8被引入
+2. 需要`sm_90`以上架构
+
+#### 9.7.8.21. Data Movement and Conversion Instructions: getctarank
+生成对应地址的CTA rank(也就是查询这段地址是属于第几个CTA)
+
+````
+getctarank{.space}.type d, a;
+
+// Get cta rank from source shared memory address in register a.
+getctarank.shared::cluster.type d, a;
+
+// Get cta rank from shared memory variable.
+getctarank.shared::cluster.type d, var;
+
+// Get cta rank from shared memory variable+offset.
+getctarank.shared::cluster.type d, var + imm;
+
+// Get cta rank from generic address of shared memory variable in register a.
+getctarank.type d, a;
+
+.space = { .shared::cluster }
+.type  = { .u32, .u64 }
+
+// example
+getctarank.shared::cluster.u32 d1, addr;
+getctarank.shared::cluster.u64 d2, sh + 4;
+getctarank.u64                 d3, src;
+````
+
+指令描述：
+1. 查询`a`这段地址是属于第几个CTA并放入`d`中
+2. `.type`时表示`a`的数据类型
+3. `.shared::cluster`表示的意思与上一条指令介绍相同
+4. `d`的数据类型是32-bit整型
+
+#### 9.7.8.22. Data Movement and Conversion Instructions: Asynchronous copy
+异步拷贝，顾名思义。这是一条很重要的指令，在优化i\o的时候，时绕不开的。
+
+对于异步拷贝的同步等待，有如下两种方式：
+1. 使用`cp.async-groups`:
+   1. 发起异步拷贝操作
+   2. 提交拷贝操作到一个`cp.async-group`中
+   3. 等待`cp.async-group`完成拷贝
+   4. 一旦`cp.async-group`完成拷贝，其中的依赖于异步拷贝操作的写操作则变得可见(我理解为变为可执行状态而非等待状态)
+2. 使用`mbarrier objects`:
+   1. 发起异步拷贝操作
+   2. 创建一个`mbarrier object`去跟踪异步拷贝操作
+   3. 等待`mbarrier object`完成异步拷贝跟踪，通过使用`mbarrier.test_wait`
+   4. 一旦`mbgarrier.test_wait`返回`True`，则接下来的写操作变得可见可执行(也就是说是个状态查询，不一定完成，并非强制等待)
+
+一个线程执行一系列的异步拷贝操作可以被批处理放入一个group中，也就是`cp.async-group`
+
+一个提交操作是被`cp.async-group`创建出来的用于提交该线程之前发起的一系列异步拷贝操作，但执行线程不感知提交操作，由`cp.async-group`管理
+
+`cp.async-group`中的异步拷贝操作没有执行顺序，但是提交顺序是按顺序的。
+
+必须等待异步拷贝完成才能之心后续的读写写操作，否则修改源数据和读取目标数据都会造成不可预测的结果。
+
+
+##### 9.7.8.22.1. Data Movement and Conversion Instructions: cp.async
+发起一次异步拷贝操作
+
+````
+cp.async.ca.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], cp-size{, src-size}{, cache-policy} ;
+cp.async.cg.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], 16{, src-size}{, cache-policy} ;
+cp.async.ca.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], cp-size{, ignore-src}{, cache-policy} ;
+cp.async.cg.shared{::cta}.global{.level::cache_hint}{.level::prefetch_size}
+                         [dst], [src], 16{, ignore-src}{, cache-policy} ;
+
+.level::cache_hint =     { .L2::cache_hint }
+.level::prefetch_size =  { .L2::64B, .L2::128B, .L2::256B }
+cp-size =                { 4, 8, 16 }
+
+// example
+cp.async.ca.shared.global  [shrd],    [gbl + 4], 4;
+cp.async.ca.shared::cta.global  [%r0 + 8], [%r1],     8;
+cp.async.cg.shared.global  [%r2],     [%r3],     16;
+
+cp.async.cg.shared.global.L2::64B   [%r2],      [%r3],     16;
+cp.async.cg.shared.global.L2::128B  [%r0 + 16], [%r1],      8;
+cp.async.cg.shared.global.L2::256B  [%r2 + 32], [%r3],     16;
+
+createpolicy.fractional.L2::evict_last.L2::evict_unchanged.b64 cache-policy, 0.25;
+cp.async.ca.shared.global.L2::cache_hint [%r2], [%r1], 4, cache-policy;
+
+cp.async.ca.shared.global                   [shrd], [gbl], 4, p;
+cp.async.cg.shared.global.L2::chache_hint   [%r0], [%r2], 16, q, cache-policy;
+````
+
+指令描述：
+1. `cp.async`的源操作数指向global内存空间，而目标操作数指向shared内存空间
+2. 操作数`cp-size`是一个整型常量，表明拷贝的字节数，且只能是4\8\16
+3. 该指令允使用一个32-bit整型数`src-size`，表达拷贝的大小，该大小不能大于`cp-size`，不足`cp-size`的部分则会被0填充，超过`cp-size`则行为未定义
+4. `ignore-src`被标注时，src data会被无视，全0会被拷贝到dst data中，如果没有标注，则默认是False的。
+5. 执行线程可以通过使用`cp.async.wait_all`或者`cp.async.wait_group`或者mbarrier相关指令去等待同步，**除此之外没有别的指令能够保证异步拷贝的完成**
+6. 异步拷贝的执行没有顺序保证
+7. `.cg`描述符表示仅在global level cache L2缓存数据而非L1 cache，并且缓存操作只会被视为性能暗示，即并不一定会被执行
+8. `cp.async`会被是为weak memory操作
+9. `.level::prefetch_size`是预取到缓存的内存暗示，表示可以顺便做一下prefetch操作，大小仍然是`64B\128B\256B`
+10. `.level::prefetch_size`只能用途`.global`内存空间的generic address
+11. `.level::cache_hint`这些不多赘述了，用法和`.ld`其实是一样的
+
+注意事项：
+1. PTX 7.0引入
+2. `.level::cache_hint`和`.level::prefetch_size`在PTX 7.4引入
+3. `ignore-src`在PTX 7.5引入
+4. `::cta`在PTX 7.8引入，需要`sm_30`以上的架构
+5. 该指令需要`sm_80`以上的架构
+
+##### 9.7.8.22.2. Data Movement and Conversion Instructions: cp.async.commit_group
+向`cp.async-group`提交之前已经发起但还未提交的异步拷贝指令
+
+````
+cp.async.commit_group ;
+
+// Example 1:
+cp.async.ca.shared.global [shrd], [gbl], 4;
+cp.async.commit_group ; // Marks the end of a cp.async group
+
+// Example 2:
+cp.async.ca.shared.global [shrd1],   [gbl1],   8;
+cp.async.cg.shared.global [shrd1+8], [gbl1+8], 8;
+cp.async.commit_group ; // Marks the end of cp.async group 1
+
+cp.async.ca.shared.global [shrd2],    [gbl2],    16;
+cp.async.cg.shared.global [shrd2+16], [gbl2+16], 16;
+cp.async.commit_group ; // Marks the end of cp.async group 2
+````
+
+指令描述：
+1. 该指令会给**每一个线程**创建一个`cp.async-group`用于提交之前发起单位提交的所有异步拷贝指令，如果没有未提交的异步拷贝指令，则创建一个空的`cp.async-group`
+2. 执行线程可以用过调用`cp.async.wait_group`来等待所有异步拷贝操作完成
+3. group中的异步拷贝指令是乱序的
+
+注意事项：
+1. 该指令在PTX 7.0被引入，需要`sm_80`以上的架构
+
+##### 9.7.8.22.3. Data Movement and Conversion Instructions: cp.async.wait_group / cp.async.wait_all
+等待前面提交的异步拷贝操作完成
+
+````
+cp.async.wait_group N;
+cp.async.wait_all ;
+
+// Example of .wait_all:
+cp.async.ca.shared.global [shrd1], [gbl1], 4;
+cp.async.cg.shared.global [shrd2], [gbl2], 16;
+cp.async.wait_all;  // waits for all prior cp.async to complete
+
+// Example of .wait_group :
+cp.async.ca.shared.global [shrd3], [gbl3], 8;
+cp.async.commit_group;  // End of group 1
+
+cp.async.cg.shared.global [shrd4], [gbl4], 16;
+cp.async.commit_group;  // End of group 2
+
+cp.async.cg.shared.global [shrd5], [gbl5], 16;
+cp.async.commit_group;  // End of group 3
+
+cp.async.wait_group 1;  // waits for group 1 and group 2 to complete
+````
+
+指令描述：
+1. `cp.async.wait_group N`中的N表示等待到还剩N个group还在pending而所有前面的group都已经完成(参见上面的exmple)。换言之，当N==0的时候，则表示等待全部的拷贝指令完成
+2. `cp.async.wait_all`顾名思义就是等待全部完成
+
+注意事项：
+1. PTX 7.0被引入，需要`sm_80`以上的架构
+
+### 9.7.9. Texture Instructions
+PTX在texture和sampler descriptors上支持如下的一些操作：
+1. texture和sampler descriptors的静态初始化
+2. 模块作用域和每个入口作用域中关于texture和sampler descriptor的定义
+3. 查询texture和sampler中的字段
+（有点不是特别理解的憋脚翻译。。）
+
+#### 9.7.9.1. Texturing Modes
+使用texture和sampler的时候，PTX有两种操作模式。
+1. `unified mode`，这种模式下访问texture和sampler的信息军来自一个单一的`.texref`句柄。该模式的好处在于：每个kernel允许由128个sampler,他们与每个内核可有的128个texture一一对应
+2. `independent mode`，这种模式下texture和sampler有各自独立的句柄，允许在使用是被分开或组合。该模式的好处在于：texture和sampler可以混合匹配，无需一一对应，但每个kernel中最多就只有16个sampler
+
+texturing mode通过`.target`选项来选择`texmode_unified`和`texmode_independent`两种。每一个PTX模块只能生命一种texturing mode，默认使用`unified mode`
+
+````
+// example
+.target texmode_independent
+.global .samplerref tsamp1 = { addr_mode_0 = clamp_to_border, 
+                               filter_mode = nearest
+                             };
+...
+.entry compute_power
+  ( .param .texref tex1 )
+{
+  txq.width.b32  r6, [tex1]; // get tex1's width
+  txq.height.b32 r5, [tex1]; // get tex1's height
+  tex.2d.v4.f32.f32  {r1,r2,r3,r4}, [tex1, tsamp1, {f1,f2}];
+  mul.u32 r5, r5, r6;
+  add.f32 r1, r1, r2;
+  add.f32 r3, r3, r4;
+  add.f32 r1, r1, r3;
+  cvt.f32.u32 r5, r5;
+  div.f32 r1, r1, r5;
+}
+````
+
+更多描述见后面的texture相关指令。
+
+#### 9.7.9.2. Mipmaps
+一个`Mipmaps`是一个texture序列，其中的每一个texture都是来自同一个图像逐渐降低分辨率的表示。
+简而言之：就是CV当中所说的"图像金字塔"，每个图层的height\width都是上一个图层的1/2
+比如：原始图像是256x256的大小，那么逐层的texture就是128x128,64x64,32x32,16x16,....,1x1
+
+通过一下公式计算mipmap金字塔的层数，也就是LOD(level of details):
+`numLods = 1 + floor(log2(max(w,h,d)))`
+注意这里降采样的时候，size是向下取整
+
+`tex`指令支持三种模式去标注对应的LOD:
+1. `base`: 始终选取level 0,也就是原始图像尺寸
+2. `level`: 选取对应的level
+3. `gradient`: 通过两个浮点适量参数去计算对应的2d-texture的LOD，如{dx/dx, dt/dx}和{dx/dy, dt/dy}，感觉就是归一化计算层级？
+
+#### 9.7.9.3. Texture Instructions: tex
+texture内存查找
+
+````
+tex.geom.v4.dtype.ctype  d, [a, c] {, e} {, f};
+tex.geom.v4.dtype.ctype  d[|p], [a, b, c] {, e} {, f};  // explicit sampler
+
+tex.geom.v2.f16x2.ctype  d[|p], [a, c] {, e} {, f};
+tex.geom.v2.f16x2.ctype  d[|p], [a, b, c] {, e} {, f};  // explicit sampler
+
+// mipmaps
+tex.base.geom.v4.dtype.ctype   d[|p], [a, {b,} c] {, e} {, f};
+tex.level.geom.v4.dtype.ctype  d[|p], [a, {b,} c], lod {, e} {, f};
+tex.grad.geom.v4.dtype.ctype   d[|p], [a, {b,} c], dPdx, dPdy {, e} {, f};
+
+tex.base.geom.v2.f16x2.ctype   d[|p], [a, {b,} c] {, e} {, f};
+tex.level.geom.v2.f16x2.ctype  d[|p], [a, {b,} c], lod {, e} {, f};
+tex.grad.geom.v2.f16x2.ctype   d[|p], [a, {b,} c], dPdx, dPdy {, e} {, f};
+
+.geom  = { .1d, .2d, .3d, .a1d, .a2d, .cube, .acube, .2dms, .a2dms };
+.dtype = { .u32, .s32, .f16,  .f32 };
+.ctype = {       .s32, .f32 };          // .cube, .acube require .f32
+                                        // .2dms, .a2dms require .s32
+                                     
+// example
+// Example of unified mode texturing
+// - f4 is required to pad four-element tuple and is ignored
+tex.3d.v4.s32.s32  {r1,r2,r3,r4}, [tex_a,{f1,f2,f3,f4}];
+
+// Example of independent mode texturing
+tex.1d.v4.s32.f32  {r1,r2,r3,r4}, [tex_a,smpl_x,{f1}];
+
+// Example of 1D texture array, independent texturing mode
+tex.a1d.v4.s32.s32 {r1,r2,r3,r4}, [tex_a,smpl_x,{idx,s1}];           
+
+// Example of 2D texture array, unified texturing mode
+// - f3 is required to pad four-element tuple and is ignored 
+tex.a2d.v4.s32.f32 {r1,r2,r3,r4}, [tex_a,{idx,f1,f2,f3}];
+
+// Example of cubemap array, unified textureing mode
+tex.acube.v4.f32.f32 {r0,r1,r2,r3}, [tex_cuarray,{idx,f1,f2,f3}];
+
+// Example of multi-sample texture, unified texturing mode
+tex.2dms.v4.s32.s32 {r0,r1,r2,r3}, [tex_ms,{sample,r6,r7,r8}];
+
+// Example of multi-sample texture, independent texturing mode
+tex.2dms.v4.s32.s32 {r0,r1,r2,r3}, [tex_ms, smpl_x,{sample,r6,r7,r8}];
+
+// Example of multi-sample texture array, unified texturing mode
+tex.a2dms.v4.s32.s32 {r0,r1,r2,r3}, [tex_ams,{idx,sample,r6,r7}];
+
+// Example of texture returning .f16 data
+tex.1d.v4.f16.f32  {h1,h2,h3,h4}, [tex_a,smpl_x,{f1}];
+
+// Example of texture returning .f16x2 data
+tex.1d.v2.f16x2.f32  {h1,h2}, [tex_a,smpl_x,{f1}];
+
+// Example of 3d texture array access with tex.grad,unified texturing mode
+tex.grad.3d.v4.f32.f32 {%f4,%f5,%f6,%f7},[tex_3d,{%f0,%f0,%f0,%f0}],     
+                {fl0,fl1,fl2,fl3},{fl0,fl1,fl2,fl3};
+
+// Example of cube texture array access with tex.grad,unified texturing mode
+tex.grad.cube.v4.f32.f32{%f4,%f5,%f6,%f7},[tex_cube,{%f0,%f0,%f0,%f0}],     
+                {fl0,fl1,fl2,fl3},{fl0,fl1,fl2,fl3};
+
+// Example of 1d texture lookup with offset, unified texturing mode
+tex.1d.v4.s32.f32  {r1,r2,r3,r4}, [tex_a, {f1}], {r5};
+
+// Example of 2d texture array lookup with offset, unified texturing mode
+tex.a2d.v4.s32.f32  {r1,r2,r3,r4}, [tex_a,{idx,f1,f2}], {f5,f6};
+
+// Example of 2d mipmap texture lookup with offset, unified texturing mode
+tex.level.2d.v4.s32.f32  {r1,r2,r3,r4}, [tex_a,{f1,f2}],    
+                         flvl, {r7, r8};
+
+// Example of 2d depth texture lookup with compare, unified texturing mode
+tex.1d.v4.f32.f32  {f1,f2,f3,f4}, [tex_a, {f1}], f0;
+
+// Example of depth 2d texture array lookup with offset, compare      
+tex.a2d.v4.s32.f32  {f0,f1,f2,f3}, [tex_a,{idx,f4,f5}], {r5,r6}, f6;
+
+// Example of destination predicate use
+tex.3d.v4.s32.s32 {r1,r2,r3,r4}|p, [tex_a,{f1,f2,f3,f4}];
+````
+
+指令描述：
 
 
 
