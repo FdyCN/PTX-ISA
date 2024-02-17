@@ -3989,15 +3989,155 @@ tex.3d.v4.s32.s32 {r1,r2,r3,r4}|p, [tex_a,{f1,f2,f3,f4}];
 ````
 
 指令描述：
+1. `tex.{1d,2d,3d}`指令。纹理查找指令，使用了纹理坐标矢量。
+   1. 指令读取纹理`a`的坐标`c`到目标操作数`d`中，`b`是可选的采样器，目标操作数中有可选的预测操作数`p`，如果`p`为True，则表示纹理数据是驻留在内存中的，False则不是。纹理数据在指定坐标的内存驻留依赖于内核启动之前使用驱动程序API调用的执行环境设置。
+   2. 1d\2d\3d的纹理坐标用法，和OpenCL image1d\2d\3d是一样的，3d情况下坐标是一个4-ele vector，其中第四个坐标会被忽略
+   3. 操作数`e`是可选的，是一个`.s32`的矢量，表明坐标系的偏移(offset)，这个偏移就是坐标系寻址时候的一个基础偏移，矢量元素个数和坐标向量元素个数相同
+   4. 操作数`f`是可选的，表示`depth textures`，表明持有深度每个像素数据的纹理。操作数`f`是`.f32`的标量值，用于指定深度纹理的深度比较值。从纹理中获取的每个元素都与`f`操作数中给定的值进行比较。如果比较通过，结果为1.0;否则结果为0.0。这些每个元素的比较结果用于filtering。当使用深度比较操作数时，纹理坐标向量`c`中的元素具有`.f32`类型。
+   5. 深度比较操作在3d纹理中不支持
+   6. 对于`fp16x2`的目标类型，指令返回一个2元矢量。而其余的所有类型，指令返回一个4元矢量。坐标可以是s32的整形或者是f32的浮点
+   7. 通常会纹理基地址与16字节边界对齐，并且坐标向量给出的地址必须与访问大小的倍数对齐。如果地址没有正确对齐，则产生的行为是未定义的。也就是说，访问可以通过悄悄地舍弃低阶地址位来实现正确的舍入，或者指令可能出错。
+
+2. `tex.{a1d,a2d}`指令。纹理数组选择，然后是纹理查找。
+   1. 该指令首先从纹理数组`a`中，根据所给的坐标矩阵`c`的第一个元素作为index，选择一块纹理。然后从该纹理中，以坐标矢量`c`中剩下的元素为读取坐标读取数据到目标操作数`d`中。
+   2. 操作数`c`有如下两种表示方式：
+      1. 对于1d texture array，`c`的类型是`.v2.b32`。其中第一个元素被解析为一个`.u32`的index，第二个则是1d的纹理坐标，数据类型为`.ctype`
+      2. 对于2d texture array，`c`的类型是`.v4.b32`。其中第一个元素被解析为一个`.u32`的index，第二三个元素则是2d的纹理坐标，数据类型为`.ctype`，第四个元素被无视
+   3. `b`是可选的采样器
+   4. `e`、`f`、`p`操作符对应的意义，同上。
+3. `tex.cube`指令。立方体纹理查找。**(在通用高性能计算中，这部分基本不会涉及，所以先跳过了)**
+4. `tex.acube`指令。立方体纹理数组选择，然后是立方体纹理查找。
+5. `tex.2dms`指令。多重采样的纹理查找。
+6. `tex.a2dms`指令。多重采样的纹理数组选择，然后进行纹理查询。
+
+**纹理部分的指令没有太过展开，一些用法直接参考上文中的example**
+
+注意事项：
+直接上图吧，不赘述了
+![image_9_7](./images/image_9_7.png)
+
+#### 9.7.9.4. Texture Instructions: tld4
+原文：Perform a texture fetch of the 4-texel bilerp footprint.
+没看懂`bilerp`这个意思。。。。暂时放弃，感觉应该是bilinear filter?
+
+#### 9.7.9.5. Texture Instructions: txq
+查询纹理和采样器的属性
+
+````
+txq.tquery.b32         d, [a];       // texture attributes
+txq.level.tlquery.b32  d, [a], lod;  // texture attributes
+txq.squery.b32         d, [a];       // sampler attributes
+
+.tquery  = { .width, .height, .depth,
+             .channel_data_type, .channel_order,
+             .normalized_coords, .array_size,
+             .num_mipmap_levels, .num_samples};
+
+.tlquery = { .width, .height, .depth };
+
+.squery  = { .force_unnormalized_coords, .filter_mode,
+             .addr_mode_0, addr_mode_1, addr_mode_2 };
+             
+// example
+txq.width.b32       %r1, [tex_A];
+txq.filter_mode.b32 %r1, [tex_A];   // unified mode
+txq.addr_mode_0.b32 %r1, [smpl_B];  // independent mode
+txq.level.width.b32 %r1, [tex_A], %r_lod;
+````
+
+指令描述：
+源操作数`a`是一个`.texref`或者`.samplerref`的变量，或者是以一个`.u64`的寄存器。
+可以查询的内容如下表所示：
+![talble32](./images/table32.png)
+
+其中
+1. 查询texture相关属性的时候，源操作数使用`.texref`，在Unified mode下面，采样器属性也是使用`.texref`来查询，在independent mode下面，采样器属性使用`.samplerref`来查询
+2. `txq.level`指令需要额外的一个32bit的整数`lod`，来标注LOD，来查询对应LOD的属性
+
+Indirect texture access
+从PTX 3.1开始，非直接纹理访问在`sm_20`以上架构，在unified mode中被支持。在非直接访问模式下，操作数`a`是一个`.u64`的寄存器，该寄存器持有`.texref`的地址。
+
+注意事项：
+1. PTX 4.3以上均支持
+2. `sm_30`架构以上均支持
+
+#### 9.7.9.6. Texture Instructions: istypep
+查询该操作数是否为标注的类型
+
+````
+istypep.type   p, a;  // result is .pred, return True or False
+
+.type = { .texref, .samplerref, .surfref };
+
+// exmaple
+istypep.texref istex, tptr;
+istypep.samplerref issampler, sptr;
+istypep.surfref issurface, surfptr;
+````
+
+指令描述不多赘述。
+
+注意事项：
+1. PTX 4.0以上支持
+2. `sm_30`以上支持
+
+### 9.7.10. Surface Instructions
+surface的用法其实了OpenCL中的imageg更像，在编码层面，是可读可写的，而CUDA texture是只读的。
+简单的例子可以参考[这里](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#surface-object-api)
+
+#### 9.7.10.1. Surface Instructions: suld
+从surface memory读取数据
+
+````
+suld.b.geom{.cop}.vec.dtype.clamp  d, [a, b];  // unformatted
+
+.geom  = { .1d, .2d, .3d, .a1d, .a2d };
+.cop   = { .ca, .cg, .cs, .cv }; // cache operation
+.vec   = { none, .v2, .v4 };
+.dtype = { .b8 , .b16, .b32, .b64 };
+.clamp = { .trap, .clamp, .zero };
+
+// example
+suld.b.1d.v4.b32.trap  {s1,s2,s3,s4}, [surf_B, {x}];
+suld.b.3d.v2.b64.trap  {r1,r2}, [surf_A, {x,y,z,w}];
+suld.b.a1d.v2.b32      {r0,r1}, [surf_C, {idx,x}];
+suld.b.a2d.b32         r0, [surf_D, {idx,x,y,z}]; // z ignored
+````
+
+指令描述：
+1. 从example看已经比较清晰了，相对于texture，suface的一些用法在PTX层面也更像OpenCL image，几大元素就是Obj + coordination + sampler(mode)
+2. `.clamp`模式包括：
+   1. `.trap`如果访问越界则直接抛出错误？(causes an execution trap)
+   2. `.clamp`读取最邻近的surface位置
+   3. `.zero`超出边界的地方直接读取为0
+3. 非直接访问与纹理内存的非直接访问一样
+
+注意事项：
+1. PTX 3.1以上全部支持
+2. `sm_20`以上架构全部支持
 
 
+#### 9.7.10.2. Surface Instructions: sust
+向surface内存存储数据
 
+````
+sust.b.{1d,2d,3d}{.cop}.vec.ctype.clamp  [a, b], c;  // unformatted
+sust.p.{1d,2d,3d}.vec.b32.clamp          [a, b], c;  // formatted
 
+sust.b.{a1d,a2d}{.cop}.vec.ctype.clamp   [a, b], c;  // unformatted
 
+.cop   = { .wb, .cg, .cs, .wt };  // cache operation
+.vec   = { none, .v2, .v4 };
+.ctype = { .b8 , .b16, .b32, .b64 };
+.clamp = { .trap, .clamp, .zero };
 
+// example
+sust.p.1d.v4.b32.trap  [surf_B, {x}], {f1,f2,f3,f4};  
+sust.b.3d.v2.b64.trap  [surf_A, {x,y,z,w}], {r1,r2};
+sust.b.a1d.v2.b64      [surf_C, {idx,x}], {r1,r2};
+sust.b.a2d.b32         [surf_D, {idx,x,y,z}], r0;  // z ignored
+````
 
-
-
-
-
-
+指令说明：
+1. 主要说明指令中`.b`和`.p`的区别：
+   1. 
