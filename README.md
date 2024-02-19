@@ -4407,3 +4407,162 @@ exit;
 注意事项：
 1. 所有PTX版本均支持
 2. 所有架构均支持
+
+
+### 9.7.12. Parallel Synchronization and Communication Instructions
+并行同步和通信的相关指令
+
+#### 9.7.12.1. Parallel Synchronization and Communication Instructions: bar, barrier
+栅栏同步指令
+
+````
+barrier{.cta}.sync{.aligned}      a{, b};
+barrier{.cta}.arrive{.aligned}    a, b;
+
+barrier{.cta}.red.popc{.aligned}.u32  d, a{, b}, {!}c;
+barrier{.cta}.red.op{.aligned}.pred   p, a{, b}, {!}c;
+
+bar{.cta}.sync      a{, b};
+bar{.cta}.arrive    a, b;
+
+bar{.cta}.red.popc.u32  d, a{, b}, {!}c;
+bar{.cta}.red.op.pred   p, a{, b}, {!}c;
+
+.op = { .and, .or };
+
+// example
+// Use bar.sync to arrive at a pre-computed barrier number and
+// wait for all threads in CTA to also arrive: 
+    st.shared [r0],r1;  // write my result to shared memory
+    bar.cta.sync  1;    // arrive, wait for others to arrive
+    ld.shared r2,[r3];  // use shared results from other threads
+
+// Use bar.sync to arrive at a pre-computed barrier number and 
+// wait for fixed number of cooperating threads to arrive:
+    #define CNT1 (8*12) // Number of cooperating threads
+
+    st.shared [r0],r1;     // write my result to shared memory
+    bar.cta.sync  1, CNT1; // arrive, wait for others to arrive
+    ld.shared r2,[r3];     // use shared results from other threads
+
+// Use bar.red.and to compare results across the entire CTA: 
+    setp.eq.u32 p,r1,r2;         // p is True if r1==r2
+    bar.cta.red.and.pred r3,1,p; // r3=AND(p) forall threads in CTA
+
+// Use bar.red.popc to compute the size of a group of threads 
+// that have a specific condition True: 
+    setp.eq.u32 p,r1,r2;         // p is True if r1==r2
+    bar.cta.red.popc.u32 r3,1,p; // r3=SUM(p) forall threads in CTA
+
+/* Producer/consumer model. The producer deposits a value in
+ * shared memory, signals that it is complete but does not wait
+ * using bar.arrive, and begins fetching more data from memory. 
+ * Once the data returns from memory, the producer must wait 
+ * until the consumer signals that it has read the value from
+ * the shared memory location. In the meantime, a consumer 
+ * thread waits until the data is stored by the producer, reads 
+ * it, and then signals that it is done (without waiting).
+ */
+    // Producer code places produced value in shared memory.
+    st.shared   [r0],r1;
+    bar.arrive  0,64;
+    ld.global   r1,[r2];
+    bar.sync    1,64;
+    ...
+
+    // Consumer code, reads value from shared memory
+    bar.sync   0,64;
+    ld.shared  r1,[r0];
+    bar.arrive 1,64;
+    ...
+
+    // Examples of barrier.cta.sync
+    st.shared         [r0],r1;
+    barrier.cta.sync  0;
+    ld.shared         r1, [r0];
+````
+
+指令描述：
+1. CTA中同步通信栅栏，每个CTA实例中有16个栅栏，编号为`0....15`
+2. `barrier{.cta}`指令可以被CTA中的线程使用。操作数`a`、`b`和`d`的类型为`.u32`，操作数`p`和`c`是条件寄存器。
+3. 操作数`a`表示选择的是哪个barrier，操作数`b`则是表明这个barrier同步多少个线程，如果`b`没有标注，则默认所有CTA中的线程都在barrier中，当`b`标注是，其值必须是warp size的整数倍，对于`barrier{.cta}.arrive`指令，线程数不能为0
+4. `barrier{.cta}.red`和`barrier{.cta}.sync`指令会等待barrier中所有其他warp未退出的线程完成。`barrier{.cta}.arrive`则不会等待其他参与的warps
+5. 当barrier完成时，等待的线程将立即重新启动，并且重新初始化barrier，以便可以立即重用它
+6. `barrier{.cta}.arrive`只保证之前的内存访问被执行，但不保证执行完成，而另外两个的话会保证完成
+7. `barrier{.cta}.red`指令会额外进行多线程的归约操作，`c`则对应每个线程的判断符。
+8. `barrier{.cta}.red`对应的reduce操作有，`.popc`会返回barrier中线程判断符为True的个数，`.and`和`.or`则是所有的线程判断符取与和或
+9. `barrier{.cta}指令有可选的`.aligned`标识符，如果被标注，则表示CTA中所有的线程都将执行`barrier{.cta}`操作
+10. 不同的warp会执行`barrier{.cta}`的不同部分，这些barrier都使用同样的barrier name和线程数。
+11. 要避免一个warp执行比预期更多的`barrier{.cta}`指令，如：arrive之后又跟了同一个barrier的别的操作
+12. 同一个barrier上，`red`不应该和`sync`或`arrive`指令混合使用
+13. `bar{.cta}.sync`等效于`barrier{.cta}.sync.aligned`, `bar{.cta.arrive}`等效于`barrier{.cta}.arrive.aligned`，`bar{.cta}.red`等效于`barrier{.cta}.red.aligned`
+
+注意事项：
+1. `.cta`标注符在PTX 7.8引入，其余的特性均在PTX 6.0以上支持
+2. `sm_30`以上架构支持所有特性
+
+#### 9.7.12.2. Parallel Synchronization and Communication Instructions: bar.warp.sync
+warp中的线程同步
+
+````
+bar.warp.sync      membermask;
+
+// example
+  st.shared.u32 [r0],r1;         // write my result to shared memory
+  bar.warp.sync  0xffffffff;     // arrive, wait for others to arrive
+  ld.shared.u32 r2,[r3];         // read results written by other threads
+````
+
+指令描述：
+1. 该指令会同步`membermask`中标注的线程id，没有在mask中标注的线程，同步结果是未定义的
+
+注意事项：
+1. PTX 6.0以上支持
+2. `sm_30`以上支持
+
+#### 9.7.12.3. Parallel Synchronization and Communication Instructions: barrier.cluster
+cluster中的线程同步
+
+````
+barrier.cluster.arrive{.aligned};
+barrier.cluster.wait{.aligned};
+
+// example
+// use of arrive followed by wait
+ld.shared::cluster.u32 r0, [addr];
+barrier.cluster.arrive.aligned;
+...
+barrier.cluster.wait.aligned;
+st.shared::cluster.u32 [addr], r1;
+````
+
+指令表述：
+1. 基本和`barrier{.cta}`的用法定义类似，只不过作用范围到了cluster中
+
+注意事项：
+1. PTX 7.8以上支持
+2. `sm_90`以上支持
+
+#### 9.7.12.4. Parallel Synchronization and Communication Instructions: membar/fence
+强制内存操作的顺序
+
+````
+fence{.sem}.scope;
+fence.proxy.proxykind;
+membar.level;
+membar.proxy.proxykind;
+
+.sem       = { .sc, .acq_rel };
+.scope     = { .cta, .cluster, .gpu, .sys };
+.level     = { .cta, .gl, .sys };
+.proxykind = { .alias };
+
+// example
+membar.gl;
+membar.cta;
+membar.sys;
+fence.sc;
+fence.sc.cluster;
+fence.proxy.alias;
+membar.proxy.alias;
+````
