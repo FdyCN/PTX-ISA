@@ -4140,4 +4140,270 @@ sust.b.a2d.b32         [surf_D, {idx,x,y,z}], r0;  // z ignored
 
 指令说明：
 1. 主要说明指令中`.b`和`.p`的区别：
-   1. 
+   1. `.b`表示非格式化的二进制数据存储，个人理解是可以做更灵活的存储如`.b64`的数据存储
+   2. `.p`表示格式化的32-bit数据的存储存储的数据从左到右分别对应`R`、`G`、`B`、`A`四个通道，如果格式并非RGBA，超出的部分则会被忽略。
+
+
+注意事项：
+1. PTX 3.1以上支持全部特性
+2. `sm_20`以上架构支持全部特性
+
+#### 9.7.10.3. Surface Instructions: sured
+Reduce surface memory
+
+````
+sured.b.op.geom.ctype.clamp  [a,b],c; // byte addressing
+sured.p.op.geom.ctype.clamp  [a,b],c; // sample addressing
+
+.op    = { .add, .min, .max, .and, .or };
+.geom  = { .1d, .2d, .3d };
+.ctype = { .u32, .u64, .s32, .b32 };  // for sured.b
+.ctype = { .b32 };                    // for sured.p
+.clamp = { .trap, .clamp, .zero };
+
+// example
+sured.b.add.2d.u32.trap  [surf_A, {x,y}], r1;
+sured.p.min.1d.b32.trap  [surf_B, {x}], r1;
+````
+
+指令描述：
+1. `sured.b`指令作用于非格式化的归约，其中，`add`操作可用于`.u32`、`.u64`、`.s32`数据类型，`min`和`max`可用于`.u32`和`.s32`，`and`和`or`可用于`.b32`类型
+2. `sured.p`指令作用于格式化的32-bit数据规约，指令作用类型仅限于`.b32`，数据会被解析为`.u32`或`.s32`，这取决于surface format包含的是UINT还是SINT
+
+注意事项：
+1. PTX 3.1以上支持全部特性
+2. `sm_20`以上支持全部特性
+
+#### 9.7.10.4. Surface Instructions: suq
+查询surface的属性
+
+````
+suq.query.b32   d, [a];
+
+.query = { .width, .height, .depth, 
+           .channel_data_type, .channel_order, 
+           .array_size, .memory_layout };
+           
+// example
+suq.width.b32       %r1, [surf_A];
+````
+
+指令描述：
+指令的源操作数`a`可以是一个`.surfref`的变量或者`.u64`的寄存器
+对应可查询的属性如下所示：S
+![table33](./images/table33.pngSS)
+
+注意事项：
+1. PTX 4.2以上支持全部特性
+2. `sm_20`以上支持全部特性
+
+### 9.7.11. Control Flow Instructions
+接下来是PTX中的控制流相关指令
+
+#### 9.7.11.1. Control Flow Instructions: {}
+指令组，也就是指令执行的scope，工作域
+
+````
+{ instructionList }
+
+// example
+{ add.s32  a,b,c; mov.s32  d,a; }
+````
+
+指令描述：
+(机器翻译)花括号创建了一组指令，主要用于定义函数体。花括号还提供了一种确定变量作用域的机制:在作用域中声明的任何变量在作用域之外都不可用。
+
+注意事项：
+1. 所有PTX版本均支持
+2. 所有架构均支持
+
+#### 9.7.11.2. Control Flow Instructions: @
+判断执行
+
+````
+@{!}p    instruction;
+
+// example
+setp.eq.f32  p,y,0;     // is y zero?
+@!p div.f32      ratio,x,y  // avoid division by zero
+
+@q  bra L23;                // conditional branch
+````
+
+指令描述：
+条件为True的线程执行指令，False不执行
+
+注意事项：
+1. 所有PTX版本均支持
+2. 所有架构均支持
+
+#### 9.7.11.3. Control Flow Instructions: bra
+跳转到目标分支并执行
+
+````
+@p   bra{.uni}  tgt;           // tgt is a label
+     bra{.uni}  tgt;           // unconditional branch
+     
+// 等效C代码
+if (p) {
+    pc = tgt;
+}
+
+// example
+bra.uni  L_exit;    // uniform unconditional jump
+@q  bra      L23;   // conditional branch
+````
+
+指令描述：
+在目标处继续执行。根据条件判断是否跳转。分支目标必须是一个标签。
+`bra.uni`保证是非发散的(non-divergent)，即即当前在warp中执行此指令的所有活动线程的判断条件和目标跳转分支是一样的。
+
+注意事项：
+1. 所有PTX版本均支持
+2. 所有架构均支持
+
+#### 9.7.11.4. Control Flow Instructions: brx.idx
+根据index进行目标分支跳转
+
+````
+@p    brx.idx{.uni} index, tlist;
+      brx.idx{.uni} index, tlist;
+      
+// 等效C代码
+if (p) {
+    if (index < length(tlist)) {
+      pc = tlist[index];
+    } else {
+      pc = undefined;
+    }
+}
+
+// example
+.function foo () {
+    .reg .u32 %r0;
+    ...
+    L1:
+    ...
+    L2:
+    ...
+    L3:
+    ...
+    ts: .branchtargets L1, L2, L3;
+    @p brx.idx %r0, ts;
+    ...
+}
+````
+
+指令描述：
+index是一个`.u32`的寄存器，`tlist`操作数必须带有`.branchtargets`标签，且必须在使用之前，在函数内部被定义。
+别的都和`bra`指令一样，可以理解为是switch
+
+注意事项：
+1. PTX 6.0以上支持
+2. `sm_30`以上架构支持
+
+#### 9.7.11.5. Control Flow Instructions: call
+调用函数
+
+````
+// direct call to named function, func is a symbol
+call{.uni} (ret-param), func, (param-list);
+call{.uni} func, (param-list);
+call{.uni} func;
+
+// indirect call via pointer, with full list of call targets
+call{.uni} (ret-param), fptr, (param-list), flist;
+call{.uni} fptr, (param-list), flist;
+call{.uni} fptr, flist;
+
+// indirect call via pointer, with no knowledge of call targets
+call{.uni} (ret-param), fptr, (param-list), fproto;
+call{.uni} fptr, (param-list), fproto;
+call{.uni} fptr, fproto;
+
+// example
+// examples of direct call
+    call     init;    // call function 'init'
+    call.uni g, (a);  // call function 'g' with parameter 'a'
+@p  call     (d), h, (a, b);  // return value into register d
+
+// call-via-pointer using jump table
+.func (.reg .u32 rv) foo (.reg .u32 a, .reg .u32 b) ...
+.func (.reg .u32 rv) bar (.reg .u32 a, .reg .u32 b) ...
+.func (.reg .u32 rv) baz (.reg .u32 a, .reg .u32 b) ...
+
+.global .u32 jmptbl[5] = { foo, bar, baz };
+      ...
+@p    ld.global.u32  %r0, [jmptbl+4];
+@p    ld.global.u32  %r0, [jmptbl+8];
+      call  (retval), %r0, (x, y), jmptbl;
+
+// call-via-pointer using .calltargets directive
+.func (.reg .u32 rv) foo (.reg .u32 a, .reg .u32 b) ...
+.func (.reg .u32 rv) bar (.reg .u32 a, .reg .u32 b) ...
+.func (.reg .u32 rv) baz (.reg .u32 a, .reg .u32 b) ...
+      ...
+@p    mov.u32  %r0, foo;
+@q    mov.u32  %r0, baz;
+Ftgt: .calltargets foo, bar, baz;
+      call  (retval), %r0, (x, y), Ftgt;
+
+// call-via-pointer using .callprototype directive
+.func dispatch (.reg .u32 fptr, .reg .u32 idx)
+{
+...
+Fproto: .callprototype _ (.param .u32 _, .param .u32 _);
+      call  %fptr, (x, y), Fproto;
+...
+````
+
+指令描述：
+1. `call`指令会存储下一条指令的地址，所以执行完成之后会返回函数调用点接着执行吓一跳指令。
+2. `call`指令默认加沙是线程发散的，除非`.uni`后缀被标注
+3. 对于直接调用，调用的`func`必须是有效的函数名。
+4. 对于间接调用，`fptr`函数指针必须是一个被寄存器持有的地址。输入参数是可选的，参数必须的寄存器、立即常数或者在`.param`空间的变量，参数是传值的。
+5. 间接调用需要额外的操作数，`flist`或`fproto`，前者需要给出一个完成的潜在调用目标的列表，这样优化后端就可以更优化，后者的情况是，完整的潜在调用目标是未知的，只给出了通用的函数原型，并且调用必须遵守ABI的调用约定。
+6. `flist`可以是包含多个函数名的函数指针数组，也可以是带有`.calltargets`的标签。两种情况下`flist`里面都是持有函数指针的寄存器，调用操作数根据`flist`所指示的函数的类型签名进行类型检查。
+7. fproto操作数是`.callprototype`的标签，调用操作数根据原型进行类型检查，代码生成将遵循ABI调用约定。如果调用的函数与原型不匹配，则行为未定义。
+8. 调用表可以在模块作用域或局部作用域，在常量或全局状态空间中声明。`.calltargets`和`.callprototype`指令必须在函数体中声明。所有函数必须在调用表初始化器或`.calltargets`指令中引用之前声明。
+
+注意事项：
+1. PTX 2.1以上全部支持
+2. `sm_20`以上架构全部支持
+
+#### 9.7.11.6. Control Flow Instructions: ret
+从调用函数返回值到指令中
+
+````
+ret{.uni};
+
+// example
+    ret;
+@p  ret;
+````
+
+指令描述：
+1. 将执行返回到调用者的环境。有发散的情况下返回会挂起线程，直到所有线程都准备好返回给调用者。这允许多个不同的ret指令。
+2. 除非`.uni`被标注，否则默认发散
+
+注意事项：
+1. 所有PTX版本均支持
+2. 所有架构均支持
+
+#### 9.7.11.7. Control Flow Instructions: exit
+终止一个线程
+
+````
+exit;
+
+// example
+    exit;
+@p  exit;
+````
+
+指令描述：
+当线程退出时，将检查等待所有线程的barrier，以查看退出的线程是否是唯一尚未进入`barrier.cta`或`barrier.cluster`。如果退出的线程占用了barrier，则释放barrier。
+
+注意事项：
+1. 所有PTX版本均支持
+2. 所有架构均支持
