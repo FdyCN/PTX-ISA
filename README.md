@@ -4566,3 +4566,97 @@ fence.sc.cluster;
 fence.proxy.alias;
 membar.proxy.alias;
 ````
+
+指令描述：
+1. `membar`指令保证了该线程先前的内存访问指令在标注的`level`中已经执行，且保证执行顺序在`membar`指令之后的内存操作前面。level标注主要用于对执行顺序敏感的线程集合。
+2. `fence`指令用于建立内存访问之间的顺序，这个为了保证缓存一致性level标注主要用于对执行顺序敏感的线程集合。
+3. `fecn.acq_rel`是一个轻量化的fence，对于大多数的内存同步操作已经足够用了。与多个内存操作组合的例子，可以参考前文内存一致性中的`acquire`和`release`字段，如果`.sem`标注符确实，则默认为`.acq_rel`
+4. `fence.sc`是一个更慢一些的fence，以牺牲性能为代价，其可以恢复顺序一致性(sequential consistency)
+5. fence实例总是通过在运行时确定的每个作用域形成一个总顺序来同步。这个总顺序可以被程序中的其他同步进一步约束。
+6. 在`sm_70`以上的架构，`membar`和`fence.sc`是等价的，`membar`对应的level`cta`、`gl`和`sys`对应于`fence`的`cta`、`gpu`和`sys`
+7. `membar.proxy`和`fence.proxy`指令建立了通过不不同代理触发的访存事务的顺序，代理的类型使用`.proxykind`来指示，`.alias`作为proxykind表示指向相同内存未知的虚拟别名地址。
+8. `sm_70`以上架构，`membar.proxy`和`fence.proxy`是等价的
+
+注意事项：
+1. `.proxy`在PTX 7.5以上支持，`.cluster`在PTX 7.8以上，其余特性PTX 6.0以上即可
+2. `membar.proxy`需要`sm_60`以上，`fence.proxy`需要`sm_70`以上，`.cluster`需要`sm_90`以上，其用的`sm_20`以上即可
+
+#### 9.7.12.5. Parallel Synchronization and Communication Instructions: atom
+基于线程之间通信的原子归约操作
+
+````
+atom{.sem}{.scope}{.space}.op{.level::cache_hint}.type d, [a], b{, cache-policy};
+atom{.sem}{.scope}{.space}.op.type d, [a], b, c;
+
+atom{.sem}{.scope}{.space}.cas.b16 d, [a], b, c;
+
+atom{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.f16     d, [a], b{, cache-policy};
+atom{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.f16x2   d, [a], b{, cache-policy};
+
+atom{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.bf16    d, [a], b{, cache-policy};
+atom{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.bf16x2  d, [a], b{, cache-policy};
+
+.space =              { .global, .shared{::cta, ::cluster} };
+.sem =                { .relaxed, .acquire, .release, .acq_rel };
+.scope =              { .cta, .cluster, .gpu, .sys };
+
+.op =                 { .and, .or, .xor,
+                        .cas, .exch,
+                        .add, .inc, .dec,
+                        .min, .max };
+.level::cache_hint =  { .L2::cache_hint };
+.type =               { .b32, .b64, .u32, .u64, .s32, .s64, .f32, .f64 };
+
+// 伪代码
+atomic {
+    d = *a;
+    *a = (operation == cas) ? operation(*a, b, c)
+                            : operation(*a, b);
+}
+where
+    inc(r, s)  = (r >= s) ? 0 : r+1;
+    dec(r, s)  = (r==0 || r > s)  ? s : r-1;
+    exch(r, s) =  s;
+    cas(r,s,t) = (r == s) ? t : r;
+    
+// example
+atom.global.add.s32  d,[a],1;
+atom.shared::cta.max.u32  d,[x+4],0;
+@p  atom.global.cas.b32  d,[p],my_val,my_new_val;
+atom.global.sys.add.u32 d, [a], 1;
+atom.global.acquire.sys.inc.u32 ans, [gbl], %r0;
+atom.add.noftz.f16x2 d, [a], b;
+atom.add.noftz.f16   hd, [ha], hb;
+atom.global.cas.b16  hd, [ha], hb, hc;
+atom.add.noftz.bf16   hd, [a], hb;
+atom.add.noftz.bf16x2 bd, [b], bb;
+atom.add.shared::cluster.noftz.f16   hd, [ha], hb;
+
+atom.global.cluster.relaxed.add.u32 d, [a], 1;
+
+createpolicy.fractional.L2::evict_last.b64 cache-policy, 0.25;
+atom.global.add.L2::cache_hint.s32  d, [a], 1, cache-policy;
+````
+
+指令描述：
+1. 通过原子操作读取`a`处的原视值到目标寄存器`d`中，然后对`a`中的原视值和`b`进行归约操作，存储归约结果到`a`并改写原始值
+2. 原子操作只能用于`.global`和`.shared`内存空间中的generic address，如果`.shared`内存空间中没有更多的子标注符，默认是`::cta`
+3. 如果`.sem`标注符确实，则默认`.relaxed`
+4. `.scope`标注符表示可以被原子操作的内存同步影响的所有线程的集合，如果确实，则默认`.gpu`
+5. 当两个原子操作作用域相交的时候，两个原子操作也会原子地执行。有点绕，我理解大致就是可以视为一整个原子操作，内部的多个操作都是保证了严格的原子性。
+6. 当原子操作在访问`.fp16x2`和`.bf16x2`的时候。不保证只通过一次32-bit访存事务来访问，换句话说，有可能会分成两次16-bit访存来完成
+7. 在`sm_6x`的或更早的架构上，在`.shared`内存空间上的原子操作，其原子性是不保证的，需要程序员自己添加barrier等操作来保证。一句话，这种时候能不用就不用
+8. 位运算支持`.and`、`.or`、`.xor`、`.cas`(compare and swap)和`.exch`(exchange)
+9. 整形运算包括`.add`、`.min`、`.max`、`.inc`、`.dec`，其中`.inc`和`.dec`操作返回值区间位[0,b]，具体操作见前边伪代码
+10. `atom.add.f32`使用nearest even的舍入模式。当前该指令的实现，在global memory上会将非正常值刷新为带符号位的0,而在shared memory上则不会刷新
+11. `atom.add.f16`, `atom.add.f16x2`, `atom.add.bf16`以及`atom.add.bf16x2`需要`.noftz`的标注符，他会保存input和result的非正常值，且不会将其刷新位0
+12. cache-hint相关标注符与前文ld\st指令的一样
+
+注意事项：
+1. `atom.add.noftz.bf16`，`atom.add.noftz.bf16x2`，`.cluster`相关指令均在PTX 7.8引入，`.level::cache_hint`在PTX 7.4引入，其余的PTX 6.3以上均支持
+2. `atom.add.noftz.f16`，`atom.cas.b16`需要`sm_70`以上，`.level::cache_hint`需要`sm_80`， bf16和cluster相关的指令需要`sm_90`以上支持，其余的`sm_60`以上均支持
+
+#### 9.7.12.6. Parallel Synchronization and Communication Instructions: red
+global、shared memory上的归约操作
+
+
