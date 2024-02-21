@@ -4659,4 +4659,176 @@ atom.global.add.L2::cache_hint.s32  d, [a], 1, cache-policy;
 #### 9.7.12.6. Parallel Synchronization and Communication Instructions: red
 global、shared memory上的归约操作
 
+````
+red{.sem}{.scope}{.space}.op{.level::cache_hint}.type          [a], b{, cache-policy};
+red{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.f16    [a], b{, cache-policy};
+red{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.f16x2  [a], b{, cache-policy};
+red{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.bf16 
+                                                      [a], b {, cache-policy};
+red{.sem}{.scope}{.space}.add.noftz{.level::cache_hint}.bf16x2
+                                                      [a], b {, cache-policy};
 
+.space =              { .global, .shared{::cta, ::cluster} };
+.sem =                {.relaxed, .release};
+.scope =              {.cta, .cluster, .gpu, .sys};
+
+.op =                 { .and, .or, .xor,
+                        .add, .inc, .dec,
+                        .min, .max };
+.level::cache_hint =  { .L2::cache_hint };
+.type =               { .b32, .b64, .u32, .u64, .s32, .s64, .f32, .f64 };
+
+// 伪代码
+*a = operation(*a, b);
+
+where
+    inc(r, s) = (r >= s) ? 0 : r+1;
+    dec(r, s) = (r==0 || r > s)  ? s : r-1;
+    
+// example
+red.global.add.s32  [a],1;
+red.shared::cluster.max.u32  [x+4],0;
+@p  red.global.and.b32  [p],my_val;
+red.global.sys.add.u32 [a], 1;
+red.global.acquire.sys.add.u32 [gbl], 1;
+red.add.noftz.f16x2 [a], b;
+red.add.noftz.bf16   [a], hb;
+red.add.noftz.bf16x2 [b], bb;
+red.global.cluster.relaxed.add.u32 [a], 1;
+red.shared::cta.min.u32  [x+4],0;
+
+createpolicy.fractional.L2::evict_last.b64 cache-policy, 0.25;
+red.global.and.L2::cache_hint.b32 [a], 1, cache-policy;
+````
+
+指令描述：
+这部分的操作和前文的`barrier.red`指令基本是一致的，不赘述了
+
+注意事项：
+1. 各个子标注符的支持情况和`atom`指令一致
+
+#### 9.7.12.7. Parallel Synchronization and Communication Instructions: vote (deprecated)
+被弃用了就先省略了
+
+#### 9.7.12.8. Parallel Synchronization and Communication Instructions: vote.sync
+线程组内进行投票？vote该怎么正确理解？
+
+````
+vote.sync.mode.pred  d, {!}a, membermask;
+vote.sync.ballot.b32 d, {!}a, membermask;  // 'ballot' form, returns bitmask
+
+.mode = { .all, .any, .uni };
+
+// example
+vote.sync.all.pred    p,q,0xffffffff;
+vote.sync.ballot.b32  r1,p,0xffffffff;  // get 'ballot' across warp
+````
+
+指令描述：
+1. `vote.sync`指令会使执行线程等待`membermask`中所有未退出的线程执行`vote.sync`，在恢复执行之前，使用相同的限定符和`membermask`来执行`vote.sync`
+2. 操作数`membermask`是一个32-bit的数，每个Bit位对应每个线程的lane id，操作数`a`是一个判断寄存器
+3. 在`mode`情况下，该指令会执行原判断操作数在所有`membermask`未退出线程中间进行归约操作。目标操作数的判断值在`membermask`中所有线程是一样的(目标值广播)
+4. 归约模式有：
+   1. `.all`: 如果`membermask`中所有未退出的线程判断符均为True，则返回True。Negate the source predicate to compute `.none`，原文这句话没太理解。
+   2. `.any`: 如果`membermask`中部分线程是True，则返回True。 Negate the source predicate to compute `.not_all`
+   3. `.uni`: 如果`membermask`中所有未退出的线程有相同的判断符，则为True。 Negating the source predicate also computes `.uni`
+5. 在`ballot`情况下，目标操作数`d`是一个`.b32`的寄存器。在这个模式下，`vote.sync.ballot.b32`就算是直接将`membermask`中的线程对应的判断符拷贝到`d`对应的bit位中，没有在`membermask`中的线程，对应的`d`中bit位默认位0
+
+注意事项：
+1. PTX 6.0以上支持
+2. `sm_30`以上架构
+
+#### 9.7.12.9. Parallel Synchronization and Communication Instructions: match.sync
+在warp中广播并比较一个值
+
+````
+match.any.sync.type  d, a, membermask;
+match.all.sync.type  d[|p], a, membermask;
+
+.type = { .b32, .b64 };
+
+// example
+match.any.sync.b32    d, a, 0xffffffff;
+match.all.sync.b64    d|p, a, mask;
+````
+
+指令描述：
+1. `match.sync`指令会在`membermask`的所有未退出的线程中，广播并比较操作数`a`的值，然后设置目标操作数`d`。可选的操作数`p`是基于选择的模式而定
+2. 操作数`a`和`d`都是`.b32`类型
+3. 对应的模式有：
+   1. `.all`: 如果`membermask`中所有未退出的线程都有相同的`a`值，那么`d`设置为未退出线程对应的mask而可选的`p`会被设置为True，否则`d`为0，`p`为False。
+   2. `.any`:  如果`membermask`中所有未退出的线程都有相同的`a`值，那么`d`设置为未退出线程对应的mask。
+4. 如果执行线程不在`membermask`中，则`match.sync`的行为未定义
+
+注意事项：
+1. PTX 6.0以上支持
+2. `sm_70`以上支持
+
+#### 9.7.12.10. Parallel Synchronization and Communication Instructions: activemask
+查询一个warp中活跃的线程(active threads)
+
+````
+activemask.b32 d;
+
+// example
+activemask.b32  %r1;
+````
+
+指令描述：
+1. 目标操作数`d`是一个32-bit的寄存器，里面的bit位对应lane id
+2. 活动线程将对应的bit位结果mask标注为1，退出、不活动或判断关闭(predicated-off)的线程将对应的bit位结果mask标注为1。
+
+注意事项：
+1. PTX 6.2以上支持
+2. `sm_30`以上架构支持
+
+#### 9.7.12.11. Parallel Synchronization and Communication Instructions: redux.sync
+在一个warp中，对每个判断活跃的线程中进行归约操作
+
+````
+redux.sync.op.type dst, src, membermask;
+.op   = {.add, .min, .max}
+.type = {.u32, .s32}
+
+redux.sync.op.b32 dst, src, membermask;
+.op   = {.and, .or, .xor}
+
+// example
+.reg .b32 dst, src, init, mask;
+redux.sync.add.s32 dst, src, 0xff;
+redux.sync.xor.b32 dst, src, mask;
+````
+
+指令描述：
+1. `redux.sync`指令会对`membermask`中所有未退出的线程进行对应的归约操作`.op`，源操作数位32-bit寄存器，结果会被写入32-bit的目标寄存器。
+2. `.add`操作结果会被阶段到32-bit
+3. 注意该指令是应用于一个warp内，而非整个CTA
+
+注意事项：
+1. PTX 7.0以上支持
+2. `sm_80`以上架构支持
+
+#### 9.7.12.12. Parallel Synchronization and Communication Instructions: griddepcontrol
+依赖的线程网格(dependent grids)的控制执行
+
+````
+griddepcontrol.action;
+
+.action   = { .launch_dependents, .wait }
+
+// example
+griddepcontrol.launch_dependents;
+griddepcontrol.wait;
+````
+
+指令描述：
+1. `griddepcontrol`指令允许依赖的线程网格和runtime阶段预设的线程网格，来控制执行，有如下的两种方式：
+   1. `.lauch_dependents`标识符，（原文一大段话硬是没太看懂，先不管了，后面再来填坑吧）。。
+   2. `.wait`标识符等待当前所有预设的线程网格完成执行，并且所有的内存操作都被执行完成并且对当前网格可见。
+2. 如果预设的线程网格使用了`griddepcontrol.launch_dependents`，那么依赖的网格必须使用`griddepcontrol.wait`来确保正确的函数执行。
+
+注意事项：
+1. PTX 7.8以上支持
+2. `sm_90`以上架构支持
+
+#### 9.7.12.13. Parallel Synchronization and Communication Instructions: mbarrier
