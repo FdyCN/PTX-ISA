@@ -4832,3 +4832,43 @@ griddepcontrol.wait;
 2. `sm_90`以上架构支持
 
 #### 9.7.12.13. Parallel Synchronization and Communication Instructions: mbarrier
+`mbarrier`是一个在shared memory中创建的屏障，其支持
+1. 同步一个CTA中的任意线程子集
+2. 等待被`cp.async`初始化的异步操作完成，并且使他们的结果对其余线程可见
+
+一个`mbarrier`对象是一个内存中的黑盒对象可以通过如下两个指令来初始化和释放：
+1. `mbarrier.init`
+2. `mbarrier.inval`
+
+其中`mbarrier`对象支持的操作有：
+1. `mbarrier.arrive`
+2. `mbarrier.arrive_drop`
+3. `mbarrier.test_wait`
+4. `mbarrier.try_wait`
+5. `mbarrier.pending_count`
+6. `cp.async.mbarrier.arrive`
+
+`mbarrier.init`之前所有的操作都是未定义行为，和`bar{.cta}`、`barrier{.cta}`指令每个CTA只能访问最大限制数目的barrier不同，`mbarrier`对象是通过最大可用shared memory size来定义和限制的。
+
+`mbarrier`中的操作能让线程在arrival和waiting for completation之间做一些有用的工作。
+
+##### 9.7.12.13.1. Size and alignment of mbarrier object
+一个黑盒的`mbarrier`对象会持续最终如下的信息：
+1. 当前mbarrier对象所处的阶段
+2. 当前mbarrier对象所处阶段中，pending arrival的数量
+3. 下一个mbarrier对象阶段中，expected arrival的数量
+
+一个mbarrier对象处理过程是一个串行的阶段，每个阶段通过线程执行一系列期望的arrive-on操作来定义，pending arrival和expected arrival的数量在[1, 2^20 - 1]这个区间
+
+##### 9.7.12.13.4. Phase of the mbarrier object
+一个mbarrier对象的阶段是指，该对象有多少次被用于同步线程和执行`cp.sync`操作。在每个阶段中，线程在程序中执行顺序未：
+1. arrive-on操作取完成当前的阶段
+2. test_wait\try_wait操作取检查当前阶段是否完成
+
+一个mbarrier对象会在完成当前阶段时被重新初始化，并立即被下一个阶段所使用。当前阶段未完成且所有之前的阶段均已完成。
+
+对于每个阶段的mbarrier对象，至少有一个test_wait或者try_wait操作必须被执行，该指令会向`waitComplete`返回一个`True`，在后续阶段执行arrive-on操作之前。
+
+##### 9.7.12.13.5. Arrive-on operation on mbarrier object
+
+
