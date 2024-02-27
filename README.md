@@ -4870,5 +4870,112 @@ griddepcontrol.wait;
 对于每个阶段的mbarrier对象，至少有一个test_wait或者try_wait操作必须被执行，该指令会向`waitComplete`返回一个`True`，在后续阶段执行arrive-on操作之前。
 
 ##### 9.7.12.13.5. Arrive-on operation on mbarrier object
+在一个mbarrier对象上，一个带有可选数量参数的arrive-on操作，包含如下两步：
+1. `mbarrier signalling`: 在执行线程缩在的mbarrier对象上，发射执行线程的到达信号或者异步拷贝操作的完成信号。因此，待处理的到达计数按count递减。如果未指定count参数，则默认为1。
+2. `mbarrier completing the current phase`: 如果待处理的数量变为0，则mbarrier对象完成了当前阶段并转向下一个阶段，到达技术也被重新初始化为期望的数。
 
+##### 9.7.12.13.6. Parallel Synchronization and Communication Instructions: mbarrier.init
+初始化一个`mbarrier`对象
+
+````
+mbarrier.init{.shared{::cta}}.b64 [addr], count;
+
+// example
+.shared .b64 shMem, shMem2;
+.reg    .b64 addr;
+.reg    .b32 %r1;
+
+cvta.shared.u64          addr, shMem2;
+mbarrier.init.b64        [addr],   %r1;
+bar.cta.sync             0;
+// ... other mbarrier operations on addr
+
+mbarrier.init.shared::cta.b64 [shMem], 12;
+bar.sync                 0;
+// ... other mbarrier operations on shMem
+````
+
+指令描述：
+1. `mbarrier.init`指令，在给定的地址操作数`addr`上初始化一个`mbarrier`对象，并且伴随一个`.u32`的操作数`count`，其范围必须在[1, 2^20 - 1]的区间内。
+2. 初始化`mbarrier`对象包含如下步骤：
+   1. 初始化当前阶段为0
+   2. 初始化预期的到达数为`count`
+   3. 初始化未到达数位`count`
+3. 如果没有标注内存空间，则使用generic address，如果`addr`地址并没有落在`.shared::cta`内存范围内，则行为未定义。
+4. 寻址操作参考6.4.1章节，对齐尺寸参考9.7.12.13.1章节
+
+注意事项：
+1. PTX 7.0以上支持， `::cta`在7.8以上支持
+2. `sm_80`以上架构支持
+
+##### 9.7.12.13.7. Parallel Synchronization and Communication Instructions: mbarrier.inval
+使`mbarrier`目标无效
+
+````
+mbarrier.inval{.shared{::cta}}.b64 [addr];
+
+// example
+.shared .b64 shmem;
+.reg    .b64 addr;
+.reg    .b32 %r1;
+.reg    .pred t0;
+
+// Example 1 :
+bar.sync                      0;
+@t0 mbarrier.init.b64     [addr], %r1;
+// ... other mbarrier operations on addr
+bar.sync                      0;
+@t0 mbarrier.inval.b64    [addr];
+
+
+// Example 2 :
+bar.cta.sync                  0;
+mbarrier.init.shared.b64           [shmem], 12;
+// ... other mbarrier operations on shmem
+bar.cta.sync                  0;
+@t0 mbarrier.inval.shared.b64      [shmem];
+
+// shmem can be reused here for unrelated use :
+bar.cta.sync                  0;
+st.shared.b64                      [shmem], ...;
+
+// shmem can be re-initialized as mbarrier object :
+bar.cta.sync                  0;
+@t0 mbarrier.init.shared.b64       [shmem], 24;
+// ... other mbarrier operations on shmem
+bar.cta.sync                  0;
+@t0 mbarrier.inval.shared::cta.b64 [shmem];
+````
+
+指令描述：
+1. `mbarrier.inval`指令，使位于`addr`中的mbarrier对象无效
+2. 在mbarrier对象所在内存地址被用在其他地方之前，必须先将其释放
+3. 除了`mbarrier.init`之外，操作一块被废除的mbarrier都是未定义行为
+4. 寻指空间、寻址操作、地址对齐尺寸与`mbarrier.init`指令要求一致
+
+注意事项：
+1. PTX 7.0以上支持， `::cta`在7.8以上支持
+2. `sm_80`架构以上支持
+
+##### 9.7.12.13.8. Parallel Synchronization and Communication Instructions: mbarrier.arrive
+在mbarrier对象上执行`arrive-on`操作
+
+````
+mbarrier.arrive{.shared{::cta}}.b64 state, [addr]{, count};
+mbarrier.arrive.noComplete{.shared{::cta}}.b64 state, [addr], count;
+
+// example
+.reg .b32 cnt;
+.reg .b64 %r<3>, addr;
+.shared .b64 shMem, shMem2;
+
+cvta.shared.u64          addr, shMem2;
+
+mbarrier.arrive.shared.b64      %r0, [shMem];
+mbarrier.arrive.shared::cta.b64 %r0, [shMem2];
+mbarrier.arrive.noComplete.b64  %r1, [addr], 2;
+mbarrier.arrive.b64             %r2, [addr], cnt;
+````
+
+指令描述：
 
