@@ -4978,4 +4978,16 @@ mbarrier.arrive.b64             %r2, [addr], cnt;
 ````
 
 指令描述：
+1. 线程会在mbarrier对象的指定地址`addr`处执行一个arrive-on操作
+2. 如果没有明确的状态空间则generic addressing会被使用
+3. 如果`addr`标注的地址没有落在`.shared::cta`地址空间中，则行为未定义
+4. 寻指空间、寻址操作、地址对齐尺寸与`mbarrier.init`指令要求一致
 
+注意事项：
+1. 需要`sm_80`以上架构
+2. `count`参数不带`.noComplete`的使用，需要`sm_90`以上架构
+3. 下划线`_`表示目的操作数在PTX 7.1被引入
+4. `.shared::cta`用法在PTX 7.8被引入
+
+##### 9.7.12.13.9.P  arallel Synchronization and Communication Instructions: mbarrier.arrive_drop
+减少mbarrier对象的期望计数并执行arrive-on操作。
