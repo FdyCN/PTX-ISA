@@ -4989,5 +4989,46 @@ mbarrier.arrive.b64             %r2, [addr], cnt;
 3. 下划线`_`表示目的操作数在PTX 7.1被引入
 4. `.shared::cta`用法在PTX 7.8被引入
 
-##### 9.7.12.13.9.P  arallel Synchronization and Communication Instructions: mbarrier.arrive_drop
+##### 9.7.12.13.9 arallel Synchronization and Communication Instructions: mbarrier.arrive_drop
 减少mbarrier对象的期望计数并执行arrive-on操作。
+
+```
+mbarrier.arrive_drop{.shared{::cta}}.b64 state, [addr]{, count};
+mbarrier.arrive_drop.noComplete{.shared{::cta}}.b64 state, [addr], count;
+
+.reg .b32 cnt;
+.reg .b64 %r1;
+.shared .b64 shMem;
+
+// Example 1
+@p mbarrier.arrive_drop.shared.b64 _, [shMem];
+@p exit;
+@p2 mbarrier.arrive_drop.noComplete.shared.b64 _, [shMem], %a;
+@p2 exit;
+..
+@!p mbarrier.arrive.shared.b64   %r1, [shMem];
+@!p mbarrier.test_wait.shared.b64  q, [shMem], %r1;
+
+// Example 2
+mbarrier.arrive_drop.shared::cta.b64     _, [addr], cnt;
+```
+
+指令描述：
+1. 当线程执行 `mbarrier.arrive_drop` 在指定地址操作数 `addr` 的 `mbarrier` 对象位置时，会执行以下步骤：
+   1. 将 `mbarrier` 对象的预期到达计数减少指定的 32 位整数操作数 `count` 的值。如果未指定 `count`，则默认为 1。
+   2. 在 `mbarrier` 对象上执行 arrive-on 操作。操作数 `count` 指定 arrive-on 操作的 `count` 参数。
+2. 如果未指定状态空间，则使用通用寻址（Generic Addressing）
+3. 如果指定的地址 addr 不在 .shared::cta 状态空间内，则行为未定义
+4. 支持的寻址模式遵循"Addresses as Operands"中的描述
+5. 地址对齐要求遵循"Size and alignment of mbarrier object"中的描述
+6. 带有 `.noComplete` 限定符的 mbarrier.arrive_drop 不得完成 `mbarrier`，否则行为未定义
+7. `count` 操作数的值必须在"Contents of the mbarrier object"中指定的范围内
+
+注意事项:
+1. 对于 `sm_8x` 架构，当指定 `count` 参数时，必须使用 `.noComplete` 修饰符.
+2. 想要退出或选择不参与 arrive-on 操作的线程可以使用 `mbarrier.arrive_drop` 将自己从 `mbarrier` 中移除
+3. 在 PTX ISA 7.0 版本引入
+4. `.shared` 上的 `::cta` 子限定符支持在 PTX ISA 7.8 版本引入
+5. 不带 `.noComplete` 修饰符的 count 参数支持在 PTX ISA 7.8 版本引入
+
+##### 9.7.12.13.10. Parallel Synchronization and Communication Instructions: cp.async.mbarrier.arrive
