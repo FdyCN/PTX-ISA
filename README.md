@@ -5032,3 +5032,206 @@ mbarrier.arrive_drop.shared::cta.b64     _, [addr], cnt;
 5. 不带 `.noComplete` 修饰符的 count 参数支持在 PTX ISA 7.8 版本引入
 
 ##### 9.7.12.13.10. Parallel Synchronization and Communication Instructions: cp.async.mbarrier.arrive
+使mbarrier对象追踪当前线程发起的所有先前`cp.async`操作
+
+```
+cp.async.mbarrier.arrive{.noinc}{.shared{::cta}}.b64 [addr];
+
+// Example 1: no .noinc
+mbarrier.init.shared.b64 [shMem], threadCount;
+....
+cp.async.ca.shared.global [shard1], [gbl1], 4;
+cp.async.cg.shared.global [shard2], [gbl2], 16;
+....
+// Absence of .noinc accounts for arrive-on from completion of prior cp.async operations.
+// So mbarrier.init must only account for arrive-on from mbarrier.arrive.
+cp.async.mbarrier.arrive.shared.b64 [shMem];
+....
+mbarrier.arrive.shared.b64 state, [shMem];
+
+waitLoop:
+mbarrier.test_wait.shared.b64 p, [shMem], state;
+@!p bra waitLoop;
+
+
+
+// Example 2: with .noinc
+
+// Tracks arrive-on from mbarrier.arrive and cp.async.mbarrier.arrive.
+
+// All threads participating in the mbarrier perform cp.async
+mov.b32 copyOperationCnt, threadCount;
+
+// 3 arrive-on operations will be triggered per-thread
+mul.lo.u32 copyArrivalCnt, copyOperationCnt, 3;
+
+add.u32 totalCount, threadCount, copyArrivalCnt;
+
+mbarrier.init.shared.b64 [shMem], totalCount;
+....
+cp.async.ca.shared.global [shard1], [gbl1], 4;
+cp.async.cg.shared.global [shard2], [gbl2], 16;
+...
+// Presence of .noinc requires mbarrier initalization to have accounted for arrive-on from cp.async
+cp.async.mbarrier.arrive.noinc.shared.b64 [shMem]; // 1st instance
+....
+cp.async.ca.shared.global [shard3], [gbl3], 4;
+cp.async.ca.shared.global [shard4], [gbl4], 16;
+cp.async.mbarrier.arrive.noinc.shared::cta.b64 [shMem]; // 2nd instance
+....
+cp.async.ca.shared.global [shard5], [gbl5], 4;
+cp.async.cg.shared.global [shard6], [gbl6], 16;
+cp.async.mbarrier.arrive.noinc.shared.b64 [shMem]; // 3rd and last instance
+....
+mbarrier.arrive.shared.b64 state, [shMem];
+
+waitLoop:
+mbarrier.test_wait.shared.b64 p, [shMem], state;
+@!p bra waitLoop;
+
+```
+指令描述：
+1. 系统将在当前线程发起的所有先前`cp.async`操作完成时，对mbarrier对象触发arrive-on操作，该操作与`cp.async.mbarrier.arrive`指令执行异步分离
+2. mbarrier对象位置由操作数`addr`指定。
+3. 默认无`.noinc`修饰符，异步arrive-on操作执行卡在那，mbarrier对象的pending计数先递增1，是的当前阶段pending计数变为0
+4. 递增后的pending技术不能超过mbarrier对象的限制，否则行为未定义；
+5. 使用`.noinc`修饰符，会跳过pending计数的递增，需要在mbarrier对象初始化时预先考虑异步arrive-on操作的计数递减；
+6. 未指定状态空间默认使用Generic Addressing，如果`addr`超出了`.shared::cta`状态空间的地址窗口，则行为未定义。
+7. 操作数`addr`的寻址模式和对齐要求遵循mbarrier对象的标准规范。
+
+注意事项：
+1. 基础指令在PTX 7.0引入；
+2. `.shared::cta`子限定符新增于PTX 7.8；
+3. 目标架构需要`sm_80`以上。
+
+##### 9.7.12.13.11. Parallel Synchronization and Communication Instructions: mbarrier.test_wait/mbarrier.try_wait
+检测mbarrier对象是否已完成当前或直接前一阶段的同步。
+
+```
+
+mbarrier.test_wait{.shared{::cta}}.b64        waitComplete, [addr], state;
+mbarrier.test_wait.parity{.shared{::cta}}.b64 waitComplete, [addr], phaseParity;
+
+mbarrier.try_wait{.shared{::cta}}.b64         waitComplete, [addr], state {, suspendTimeHint};
+mbarrier.try_wait.parity{.shared{::cta}}.b64  waitComplete, [addr], phaseParity {, suspendTimeHint};
+
+// Example 1a, thread synchronization with test_wait:
+
+.reg .b64 %r1;
+.shared .b64 shMem;
+
+mbarrier.init.shared.b64 [shMem], N;  // N threads participating in the mbarrier.
+...
+mbarrier.arrive.shared.b64  %r1, [shMem]; // N threads executing mbarrier.arrive
+
+// computation not requiring mbarrier synchronization...
+
+waitLoop:
+mbarrier.test_wait.shared.b64    complete, [shMem], %r1;
+@!complete nanosleep.u32 20;
+@!complete bra waitLoop;
+
+// Example 1b, thread synchronization with try_wait :
+
+.reg .b64 %r1;
+.shared .b64 shMem;
+
+mbarrier.init.shared.b64 [shMem], N;  // N threads participating in the mbarrier.
+...
+mbarrier.arrive.shared.b64  %r1, [shMem]; // N threads executing mbarrier.arrive
+
+// computation not requiring mbarrier synchronization...
+
+waitLoop:
+mbarrier.try_wait.shared.b64    complete, [shMem], %r1;
+@!complete bra waitLoop;
+
+
+// Example 2, thread synchronization using phase parity :
+
+.reg .b32 i, parArg;
+.reg .b64 %r1;
+.shared .b64 shMem;
+
+mov.b32 i, 0;
+mbarrier.init.shared.b64 [shMem], N;  // N threads participating in the mbarrier.
+...
+loopStart :                           // One phase per loop iteration
+    ...
+    mbarrier.arrive.shared.b64  %r1, [shMem]; // N threads
+    ...
+    and.b32 parArg, i, 1;
+    waitLoop:
+    mbarrier.test_wait.parity.shared.b64  complete, [shMem], parArg;
+    @!complete nanosleep.u32 20;
+    @!complete bra waitLoop;
+    ...
+    add.u32 i, i, 1;
+    setp.lt.u32 p, i, IterMax;
+@p bra loopStart;
+
+
+// Example 3, Asynchronous copy completion waiting :
+
+.reg .b64 state;
+.shared .b64 shMem2;
+.shared .b64 shard1, shard2;
+.global .b64 gbl1, gbl2;
+
+mbarrier.init.shared.b64 [shMem2], threadCount;
+...
+cp.async.ca.shared.global [shard1], [gbl1], 4;
+cp.async.cg.shared.global [shard2], [gbl2], 16;
+
+// Absence of .noinc accounts for arrive-on from prior cp.async operation
+cp.async.mbarrier.arrive.shared.b64 [shMem2];
+...
+mbarrier.arrive.shared.b64 state, [shMem2];
+
+waitLoop:
+mbarrier.test_wait.shared::cta.b64 p, [shMem2], state;
+@!p bra waitLoop;
+```
+
+指令描述：
+1. 操作类型分为`test_wait`非阻塞检测和`try_wait`潜在阻塞检测，其中非阻塞检测会立即返回检测结果，不暂停当前线程。潜在阻塞检测则时若干同步未完成，线程可能被挂起，挂起时间上限由系统或`suspendTimeHint`控制。
+2. 检测条件，`state`参数，由同一mbarrier对象的`mbarrier.arrive`指令在当前\前一阶段返回值指定。
+3. 检测条件，'phaseParity'参数，通过奇偶阶段(0表示偶阶段，1表示奇阶段)表示需检测的阶段。
+4. 仅支持检测：当前未完成阶段(waitComplete=FALSE)和直接前一阶段(waitComplete=TRUE);
+5. 已完成阶段内，所有参与线程在`mbarrier.arrive`前发起的内存访问均对当前线程可见；所有`cp.async.mbarrier.arrive`前发起的异步内存操作已完成并可见；
+6. 检测后发起的内存操作，对于其他参与线程在`mbarrier.arrive`前执行的访问，不可见。
+7. 地址空间约束同上一小节。
+
+注意事项：
+1. `test_wait`基础指令引入于PTX 7.0，`.parity`修饰符新增于PTX 7.1;
+2. `try_wait`及`.shared::cta`子限定符支持新增于PTX 7.8;
+3. `test_wait`需‌`sm_80`及以上‌，`try_wait`需`sm_90`及以上‌。
+
+##### 9.7.12.13.13. Parallel Synchronization and Communication Instructions: mbarrier.pending_count
+从mbarrier的‌不透明状态值‌中查询待处理的到达计数。
+
+```
+mbarrier.pending_count.b64 count, state;
+
+// example
+.reg .b32 %r1;
+.reg .b64 state;
+.shared .b64 shMem;
+
+mbarrier.arrive.noComplete.b64 state, [shMem], 1;
+mbarrier.pending_count.b64 %r1, state;
+```
+
+指令描述：
+1. 通过`mbarrier.pending_count`指令，可从64位寄存器`state`中提取mbarrier对象的待处理计数(pending coun);
+2. `state`必须为`mbarrier.arrive.noComplete`或`mbarrier.arrive_drop.noComplete`指令的结果，否则行为未定义;
+3. 目标寄存器`count`为32位无符号整数，表示生成`state`的`arrive-on`操作执行前mbarrier对象的待处理计数值。
+
+注意事项：
+1. 指令在PTX 7.0 引入；
+2. 需要`sm_80`以上架构。
+
+### 9.7.13. Warp Level Matrix Multiply-Accumulate Instructions
+PS: 终于翻译到了PTX甚至是CUDA最核心的矩阵乘计算指令了，可以说看懂了这个，主要的内联ptx的gemm算子核心逻辑就能弄懂了。
+不过介于mma指令由很多不同的配置和玩法，所以接下来的翻译可能需要配搭配一些绘图能够帮助更好的理解。
+
