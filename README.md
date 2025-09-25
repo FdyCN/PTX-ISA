@@ -5,7 +5,7 @@ CUDA PTX-ISA Document 中文翻译版
 
 其中PTX版本为`7.8`
 
-记录一下学习过程，部分内容会经过提炼加上一些自己的理解。
+记录一下学习过程，部分内容会经过提炼加上一些自己的理解。
 
 # Chapter 1. Intruduction
 ## 1.1 Scalable Data-Parallel Computing using GPUS
@@ -653,7 +653,7 @@ PTX提供了一个操作符`generic()`，用于获取变量的地址。
  // array of generic-address pointers to elements of bar
  .global .u32 parr[] = { generic(bar), generic(bar)+4, generic(bar)+8 };
 
- // 为了简洁此处省略掉了mask操作符 实际的写法类似于 mask(0xff, foo)  
+ // 为了简洁此处省略掉了mask操作符
  // 提取foo的某一个btye初始化为u8数据。  
  .global .u8 addr[] = {0xff(foo), 0xff00(foo), 0xff0000(foo), ...};
  .global .u8 addr2[] = {0xff(foo+4), 0xff00(foo+4), 0xff0000(foo+4),...}
