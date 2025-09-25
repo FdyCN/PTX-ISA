@@ -653,8 +653,8 @@ PTX提供了一个操作符`generic()`，用于获取变量的地址。
  // array of generic-address pointers to elements of bar
  .global .u32 parr[] = { generic(bar), generic(bar)+4, generic(bar)+8 };
 
- // 为了简洁此处省略掉了mask操作符
- // 提取foo的某一个btye初始化为u8数据。
+ // 为了简洁此处省略掉了mask操作符 实际的写法类似于 mask(0xff, foo)  
+ // 提取foo的某一个btye初始化为u8数据。  
  .global .u8 addr[] = {0xff(foo), 0xff00(foo), 0xff0000(foo), ...};
  .global .u8 addr2[] = {0xff(foo+4), 0xff00(foo+4), 0xff0000(foo+4),...}
  .global .u8 addr3[] = {0xff(generic(foo)), 0xff00(generic(foo)),...}
@@ -684,7 +684,8 @@ TODO: 这部分还有关于device function name出现在初始化式里面的情
 ### 5.4.5 Alignment
 所有可寻址变量的内存字节对齐数，可以在变量生命的时候被定义，使用可选的`.align`关键字。
 
-关于对齐，和c\c++中的类似，就不多赘述了，举个例子：
+变量将对齐到字节数的整数倍地址。对齐值（字节数）必须是 2 的幂。对于数组，对齐方式指定的是整个数组起始地址的对齐方式，而非单个元素的对齐方式。
+标量和数组变量的默认对齐方式是其基类型大小的倍数。向量变量的默认对齐方式是其整体向量大小的倍数。
 ```
 // allocate array at 4-byte aligned address. Elements are bytes.
  .const .align 4 .b8 bar[8] = {0,0,0,0,2,0,0,0};
